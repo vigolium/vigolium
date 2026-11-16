@@ -18,6 +18,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/fuzz"
 	"github.com/vigolium/vigolium/pkg/input/formats/curl"
 	"github.com/vigolium/vigolium/pkg/proxytarget"
+	"github.com/vigolium/vigolium/pkg/replay"
 )
 
 // Curl-compatible network options. These are spelled with curl's long names so
@@ -410,13 +411,7 @@ func buildFuzzClient(cookies gohttp.CookieJar, mode bulkhttp.Mode) (*gohttp.Clie
 	}
 
 	if fuzzMaxRedirs > 0 {
-		limit := fuzzMaxRedirs
-		client.CheckRedirect = func(_ *gohttp.Request, via []*gohttp.Request) error {
-			if len(via) >= limit {
-				return fmt.Errorf("stopped after %d redirects", limit)
-			}
-			return nil
-		}
+		client.CheckRedirect = replay.RedirectLimit(fuzzMaxRedirs)
 	}
 	return client, bulk, nil
 }

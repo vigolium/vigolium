@@ -30,16 +30,16 @@ func TestCheckScope(t *testing.T) {
 func TestComputeOverallStatusScope(t *testing.T) {
 	ok := &CheckResult{Status: StatusOK}
 	r := &Report{Database: ok, Scope: &CheckResult{Status: StatusError}}
-	if got := computeOverallStatus(r); got != "degraded" {
+	if got := computeOverallStatus(r, true); got != "degraded" {
 		t.Fatalf("scope error: got %q, want degraded", got)
 	}
 	r.Scope = &CheckResult{Status: StatusWarning}
-	if got := computeOverallStatus(r); got != "ready" {
+	if got := computeOverallStatus(r, true); got != "ready" {
 		t.Fatalf("scope warning: got %q, want ready", got)
 	}
 	r.Scope = ok
 	r.OAST = &CheckResult{Status: StatusWarning}
-	if got := computeOverallStatus(r); got != "ready" {
+	if got := computeOverallStatus(r, true); got != "ready" {
 		t.Fatalf("oast warning: got %q, want ready", got)
 	}
 }

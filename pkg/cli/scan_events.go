@@ -133,6 +133,7 @@ func beginScanEventStream(db *database.DB, opts *types.Options, settings *config
 			// only this one says why. The reasons list still carries the detail.
 			ev.Status = scanevents.StatusInterrupted
 		}
+		applyExitOutcome(&ev, withFailOnGate(runErr))
 		scanevents.Finish(ev)
 		reportEventStreamDelivery()
 	}
@@ -183,6 +184,34 @@ func scanFinishTotals(db *database.DB, ev *scanevents.Event, opts *types.Options
 	if scan, err := repo.GetScanByUUID(ctx, opts.ScanUUID); err == nil {
 		applyScanCompletion(ev, scan)
 	}
+	if sessions, err := repo.ListOpenOASTSessions(ctx, opts.ProjectUUID, opts.ScanUUID); err == nil {
+		ev.OASTSessionsKept = keptOASTSessions(sessions)
+	}
+}
+
+// keptOASTSessions is the oast_sessions_kept list: each open session's row id
+// (what `oast poll` reports as session_id) and server.
+func keptOASTSessions(sessions []*database.OASTSession) []scanevents.OASTSession {
+	var out []scanevents.OASTSession
+	for _, s := range sessions {
+		if s != nil {
+			out = append(out, scanevents.OASTSession{ID: s.ID, Server: s.ServerURL})
+		}
+	}
+	return out
+}
+
+// applyExitOutcome stamps the status the invocation exits with on the
+// terminal event: final is the run's error with the gates applied
+// (withFailOnGate), so a consumer of the stream alone learns what the process
+// exit code and the error envelope would say. exit_code is always written (a
+// 0 is a reading); error_code only when the exit is not 0.
+func applyExitOutcome(ev *scanevents.Event, final error) {
+	code := classifyExitCode(final)
+	ev.ExitCode = scanevents.Int(code)
+	if final != nil && code != ExitSuccess {
+		ev.ErrorCode = string(classifyErrorCode(final, code))
+	}
 }
 
 // applyScanCompletion downgrades a "completed" terminal event to "curtailed"
@@ -197,6 +226,22 @@ func scanFinishTotals(db *database.DB, ev *scanevents.Event, opts *types.Options
 //
 // `curtailed` is an existing status value (a phase already reported it), so a
 // consumer switching on status sees nothing new in kind.
+// phaseScopeExtras is what a scan's phase outcomes say was kept out of it:
+// records refused per scope rule class (nil when none) and the controls the
+// browser crawl's destructive-click guard did not click (nil when none). The
+// scan.finished event and the scan document both report them.
+func phaseScopeExtras(phases []database.PhaseOutcome) (map[string]int64, *scanevents.SkippedControls) {
+	dropped := database.ScopeDropped(phases)
+	if len(dropped) == 0 {
+		dropped = nil
+	}
+	var skipped *scanevents.SkippedControls
+	if n, sample := database.SkippedControls(phases); n > 0 || len(sample) > 0 {
+		skipped = &scanevents.SkippedControls{Count: n, Sample: sample}
+	}
+	return dropped, skipped
+}
+
 func applyScanCompletion(ev *scanevents.Event, scan *database.Scan) {
 	if ev == nil || scan == nil {
 		return
@@ -213,6 +258,7 @@ func applyScanCompletion(ev *scanevents.Event, scan *database.Scan) {
 	if capped := database.SumFindingsCapped(scan.PhaseOutcomes); len(capped) > 0 {
 		ev.FindingsCapped = capped
 	}
+	ev.ScopeDropped, ev.SkippedControls = phaseScopeExtras(scan.PhaseOutcomes)
 	// The preflight tally, as the runner recorded it (scope admission, and
 	// reachability when the preflight GET ran).
 	for _, p := range scan.PhaseOutcomes {

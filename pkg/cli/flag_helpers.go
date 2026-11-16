@@ -83,7 +83,7 @@ func registerScanPipelineFlags(flags *pflag.FlagSet) {
 	registerAllowRiskyPayloadsFlag(flags)
 	registerNoParamDedupFlag(flags)
 	flags.StringVar(&scanOpts.ResumeScanUUID, "resume-scan", "",
-		"Resume a previous scan by UUID: reuse its scan row and cursor and skip the records/modules its coverage ledger records as done")
+		"Resume a previous scan by UUID: reuse its scan row and cursor and skip the records/modules its coverage ledger records as done. Refused before anything is sent when the scan does not exist (scan_not_found), is still running (scan_running), or its targets, scope or modules differ from this run's (resume_mismatch; --force resumes anyway)")
 	flags.StringVar(&scanOpts.HeaderFuzz, "header-fuzz", "",
 		"Header insertion points: gated (default: noise headers skipped, logged/negotiation/routing headers once per host and only for the vuln classes they can sink) or all (every header, every module, per path). Overrides config dynamic-assessment.header_points")
 	registerParamMiningFlag(flags)

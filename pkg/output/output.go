@@ -107,6 +107,12 @@ type ResultEvent struct {
 	// Error field for error reporting
 	Error string `json:"error,omitempty"`
 
+	// VulnClass is the reported vulnerability class (a pkg/vulnclass name)
+	// when the result itself decides it: an OAST callback reports the class
+	// its payload was minted for, which a multi-class module (oast-probe)
+	// cannot declare once. Empty means the module's declared class applies.
+	VulnClass string `json:"vuln_class,omitempty"`
+
 	// Internal fields (not serialized to JSON)
 	DisableNotify bool   `json:"-"`
 	ModuleType    string `json:"-"`

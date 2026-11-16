@@ -628,16 +628,12 @@ func resolveLogSource(uuid string, settings *config.Settings) (*logSource, error
 		repo = database.NewRepository(db)
 	}
 
-	statusFile := runner.SessionStatusPath(settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir(), uuid)
+	sessionsDir := settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir()
 	// nativeLiveness is the shared verdict for a native scan, with or without a
 	// log file: the row's heartbeat, status.json, the log's mtime and the
 	// newest scan_logs line all count.
 	nativeLiveness := func(scan *database.Scan, logFile string) Liveness {
-		var lastLog time.Time
-		if repo != nil && scan != nil && scan.Status == "running" {
-			lastLog = lastScanLogTimes(ctx, repo, []*database.Scan{scan})[uuid]
-		}
-		return sessionLiveness(scan, statusFile, logFile, lastLog)
+		return scanRowLiveness(ctx, repo, scan, sessionsDir, uuid, logFile)
 	}
 	nativeRow := func() *database.Scan {
 		if repo == nil {

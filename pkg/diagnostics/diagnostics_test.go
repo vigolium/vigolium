@@ -1,6 +1,7 @@
 package diagnostics
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -68,19 +69,19 @@ func TestRoundedAge(t *testing.T) {
 
 func TestComputeOverallStatus(t *testing.T) {
 	t.Run("nil database is not_ready", func(t *testing.T) {
-		if got := computeOverallStatus(&Report{}); got != "not_ready" {
+		if got := computeOverallStatus(&Report{}, true); got != "not_ready" {
 			t.Errorf("got %q, want not_ready", got)
 		}
 	})
 	t.Run("database error is not_ready", func(t *testing.T) {
 		r := &Report{Database: &CheckResult{Status: StatusError}}
-		if got := computeOverallStatus(r); got != "not_ready" {
+		if got := computeOverallStatus(r, true); got != "not_ready" {
 			t.Errorf("got %q, want not_ready", got)
 		}
 	})
 	t.Run("healthy is ready", func(t *testing.T) {
 		r := &Report{Database: &CheckResult{Status: StatusOK}}
-		if got := computeOverallStatus(r); got != "ready" {
+		if got := computeOverallStatus(r, true); got != "ready" {
 			t.Errorf("got %q, want ready", got)
 		}
 	})
@@ -89,7 +90,7 @@ func TestComputeOverallStatus(t *testing.T) {
 			Database:        &CheckResult{Status: StatusOK},
 			NucleiTemplates: &CheckResult{Status: StatusError},
 		}
-		if got := computeOverallStatus(r); got != "degraded" {
+		if got := computeOverallStatus(r, true); got != "degraded" {
 			t.Errorf("got %q, want degraded", got)
 		}
 	})
@@ -100,7 +101,7 @@ func TestComputeOverallStatus(t *testing.T) {
 				"jstangle": {Status: StatusError},
 			},
 		}
-		if got := computeOverallStatus(r); got != "degraded" {
+		if got := computeOverallStatus(r, true); got != "degraded" {
 			t.Errorf("got %q, want degraded", got)
 		}
 	})
@@ -111,7 +112,7 @@ func TestComputeOverallStatus(t *testing.T) {
 				"vigolium-audit": {Status: StatusError},
 			},
 		}
-		if got := computeOverallStatus(r); got != "ready" {
+		if got := computeOverallStatus(r, true); got != "ready" {
 			t.Errorf("got %q, want ready", got)
 		}
 	})
@@ -121,7 +122,7 @@ func TestComputeOverallStatus(t *testing.T) {
 			Database: &CheckResult{Status: StatusOK},
 			Browser:  &CheckResult{Status: StatusWarning},
 		}
-		if got := computeOverallStatus(r); got != "ready" {
+		if got := computeOverallStatus(r, true); got != "ready" {
 			t.Errorf("got %q, want ready (browser warning is not a failure)", got)
 		}
 	})
@@ -176,5 +177,72 @@ func TestHasFixableIssues(t *testing.T) {
 	r := &Report{NucleiTemplates: &CheckResult{Status: StatusError}}
 	if !HasFixableIssues(r) {
 		t.Error("failing nuclei-templates should be fixable")
+	}
+}
+
+// Deps.Include runs only the checks it selects: an unselected check's probe
+// (the chromium launch, jstangle, vigolium-audit, piolium) never runs, its row
+// is absent, and the verdict counts only what ran.
+func TestRunIncludeSkipsUnselectedProbes(t *testing.T) {
+	var called []string
+	withProbe(t, func(string) error { called = append(called, "chromium-launch"); return nil })
+	swap := func(dst *func() *CheckResult, name string) {
+		orig := *dst
+		*dst = func() *CheckResult { called = append(called, name); return &CheckResult{Status: StatusOK} }
+		t.Cleanup(func() { *dst = orig })
+	}
+	swap(&jstangleProbe, "jstangle")
+	swap(&auditBinaryProbe, "vigolium-audit")
+	swap(&pioliumProbe, "piolium")
+
+	only := func(ids ...string) func(string) bool {
+		return func(id string) bool { return slices.Contains(ids, id) }
+	}
+	r := Run(Deps{Include: only("config"), ProbeBrowserLaunch: true, ProbeNetwork: true})
+	if len(called) != 0 {
+		t.Errorf("unselected probes ran: %v", called)
+	}
+	if r.Config == nil || r.Database != nil || r.OAST != nil || r.Tools["chromium"] != nil || len(r.EmbeddedBinaries) != 0 || r.Piolium != nil {
+		t.Errorf("unselected checks reported: %+v", r)
+	}
+	if r.Status != "ready" {
+		t.Errorf("status = %q, want ready: the database was not asked about", r.Status)
+	}
+	for _, c := range r.Checks() {
+		if c.ID == "database" || c.ID == "chromium" || c.ID == "jstangle" {
+			t.Errorf("unselected check %q listed", c.ID)
+		}
+	}
+
+	// audit is off by default, so selecting it probes nothing.
+	called = nil
+	r = Run(Deps{Include: only("jstangle", "audit")})
+	if !slices.Equal(called, []string{"jstangle"}) {
+		t.Errorf("probes = %v, want jstangle only", called)
+	}
+	if r.EmbeddedBinaries["jstangle"] == nil || r.EmbeddedBinaries["vigolium-audit"] != nil {
+		t.Errorf("embedded binary rows = %+v, want jstangle only", r.EmbeddedBinaries)
+	}
+	if r.Status != "ready" {
+		t.Errorf("status = %q, want ready", r.Status)
+	}
+}
+
+func TestAllCheckIDsCoversTheReport(t *testing.T) {
+	r := &Report{
+		Config: &CheckResult{}, Scope: &CheckResult{}, Database: &CheckResult{}, Initialized: &CheckResult{},
+		NucleiTemplates: &CheckResult{}, OAST: &CheckResult{}, Agent: &AgentCheck{}, SessionsDir: &CheckResult{},
+		TemplatesDir: &CheckResult{}, Browser: &CheckResult{}, Audit: &CheckResult{}, Piolium: &CheckResult{}, Skill: &CheckResult{},
+		EmbeddedBinaries: map[string]*CheckResult{"jstangle": {}, "vigolium-audit": {}},
+		Tools:            map[string]*ToolCheck{},
+	}
+	for _, id := range []string{"chromium", "bun", "npm", "agent-browser", "pi", "claude", "codex"} {
+		r.Tools[id] = &ToolCheck{}
+	}
+	ids := AllCheckIDs()
+	for _, c := range r.Checks() {
+		if !slices.Contains(ids, c.ID) {
+			t.Errorf("check %q is missing from AllCheckIDs", c.ID)
+		}
 	}
 }

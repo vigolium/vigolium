@@ -113,6 +113,7 @@ func printVersion(cmd *cobra.Command) error {
 		}
 		fmt.Printf("%s %s\n", "Commit:", terminal.Yellow(commit))
 	}
+	fmt.Printf("%s %s\n", "Features:", strings.Join(versionFeatureNames(), ", "))
 	fmt.Printf("%s %s\n", "Author:", terminal.Magenta(Author))
 	fmt.Printf("%s %s\n", "Initial Contributor:", terminal.Magenta(InitialContributor))
 	fmt.Printf("%s %s\n", "Website:", terminal.Blue("https://www.vigolium.com"))
@@ -147,6 +148,8 @@ func printVersionJSON(cmd *cobra.Command) error {
 	// readable here when its min_reader_version <= db_schema_version, and
 	// writable only when its version <= db_schema_version (else schema_too_new).
 	info["db_min_reader_version"] = database.MinReaderVersion()
+	// features names the capabilities a caller may gate on (version_features.go).
+	info["features"] = versionFeatureNames()
 	if BuildTime != "" {
 		info["build_time"] = BuildTime
 	}

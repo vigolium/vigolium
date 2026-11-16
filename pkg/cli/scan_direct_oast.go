@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/oast"
@@ -21,6 +22,7 @@ import (
 // path used to build none, so every blind check (SSRF, XXE, command injection,
 // log4shell, ...) silently planted nothing. Now:
 //
+//   - --offline (or settings key offline): no OAST at all.
 //   - --oast-url: fixed-URL mode, ready at once (no registration).
 //   - otherwise, oast.enabled (default true): interactsh registration starts
 //     before the request goes out and gets the Runner's bounded wait
@@ -37,7 +39,10 @@ import (
 const directOASTWait = 3 * time.Second
 
 // oastConfig returns the OAST config the direct path runs with, or nil when
-// OAST is off (oast.enabled false). A settings load failure is returned: it
+// OAST is off: oast.enabled false, or --offline (flag or settings key
+// offline), which keeps the run off every non-target network path — no
+// interactsh registration and no fixed --oast-url payloads either, as on the
+// Runner path (Runner.applyOffline). A settings load failure is returned: it
 // means an explicit --config could not be read, which every other path treats
 // as fatal too.
 func (s *directScanSession) oastConfig() (*config.OASTConfig, error) {
@@ -45,7 +50,7 @@ func (s *directScanSession) oastConfig() (*config.OASTConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !settings.OAST.Enabled {
+	if !settings.OAST.Enabled || runner.Offline(globalOffline, settings) {
 		return nil, nil
 	}
 	cfg := settings.OAST

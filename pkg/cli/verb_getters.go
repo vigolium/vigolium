@@ -249,7 +249,7 @@ func runAuthShow(cmd *cobra.Command, args []string) error {
 	views := newAuthSessionViews(rows, authShowShowSecrets)
 	if globalJSON {
 		return emitRead(cmd, "", views, int64(len(views)), 0, len(views),
-			withProjectScope(projectUUID), withDBPath(resolvedReadDBPath()), withExtra("redacted", !authShowShowSecrets))
+			withProjectScope(projectUUID), withDBPath(resolvedReadDBPath()), withRedacted(!authShowShowSecrets && len(views) > 0))
 	}
 	for _, v := range views {
 		fmt.Printf("%s %s @ %s (role %s, position %d)\n", terminal.InfoSymbol(), v.SessionName, v.Hostname, firstNonEmptyString(v.SessionRole, "-"), v.Position)

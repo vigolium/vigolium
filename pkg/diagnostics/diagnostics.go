@@ -141,6 +141,23 @@ type Deps struct {
 	// ProbeBrowserLaunch it is set by the CLI doctor only; the server
 	// /diagnostics endpoint leaves it off so a poll never touches the network.
 	ProbeNetwork bool
+	// Include, when set, selects the checks to run by check id (the ids
+	// Report.Checks lists; `doctor --only`): a check it refuses never runs —
+	// no chromium launch, no jstangle extraction, no OAST resolution — and is
+	// absent from the report, whose Status is the verdict over the checks that
+	// ran. nil runs every check. The PATH lookups for the tools other than
+	// chromium always run: they are cheap, and the pi/piolium tips and the
+	// --fix dependency graph read them.
+	Include func(id string) bool
+}
+
+// AllCheckIDs lists every check id Run can report from the CLI (queue needs
+// Deps.Queue and is the server's), in Report.Checks order: what an Include
+// predicate and a `doctor --only` token choose among.
+func AllCheckIDs() []string {
+	return []string{"config", "scope", "database", "initialized", "chromium", "nuclei_templates", "jstangle", "oast",
+		"agent", "sessions_dir", "templates_dir", "browser", "audit", "vigolium-audit", "piolium",
+		"bun", "claude", "agent-browser", "pi", "codex", "npm", "skill"}
 }
 
 // AuditPathStatus describes one of the two driver paths under "Audit mode"
@@ -196,28 +213,34 @@ func Run(deps Deps) *Report {
 		Timestamp: time.Now().Format(time.RFC3339),
 		Tools:     make(map[string]*ToolCheck),
 	}
+	run := func(id string) bool { return deps.Include == nil || deps.Include(id) }
 
-	r.Config = checkConfig(deps.ConfigPath, deps.ConfigErr)
-	r.Scope = checkScope(settings)
-	r.OAST = checkOAST(settings, deps.ProbeNetwork)
-	r.Database = checkDatabase(deps.DB, deps.DBErr)
-	r.Initialized = checkInitMarker()
-	r.Queue = checkQueue(deps.Queue)
-	r.Agent = checkAgent(settings)
-	r.Browser = checkBrowser(settings)
-	chromiumFallbacks := []string{"chromium-browser", "google-chrome", "google-chrome-stable"}
-	if runtime.GOOS == "darwin" {
-		chromiumFallbacks = append(chromiumFallbacks,
-			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-			"/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-			"/Applications/Chromium.app/Contents/MacOS/Chromium",
-			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-		)
+	if run("config") {
+		r.Config = checkConfig(deps.ConfigPath, deps.ConfigErr)
 	}
-	r.Tools["chromium"] = checkTool("chromium", chromiumFallbacks)
-	if deps.ProbeBrowserLaunch {
-		r.Tools["chromium"] = probeChromium(r.Tools["chromium"])
+	if run("scope") {
+		r.Scope = checkScope(settings)
+	}
+	if run("oast") {
+		r.OAST = checkOAST(settings, deps.ProbeNetwork)
+	}
+	if run("database") {
+		r.Database = checkDatabase(deps.DB, deps.DBErr)
+	}
+	if run("initialized") {
+		r.Initialized = checkInitMarker()
+	}
+	if run("queue") {
+		r.Queue = checkQueue(deps.Queue)
+	}
+	if run("agent") {
+		r.Agent = checkAgent(settings)
+	}
+	if run("browser") {
+		r.Browser = checkBrowser(settings)
+	}
+	if run("chromium") {
+		r.Tools["chromium"] = checkChromium(deps.ProbeBrowserLaunch)
 	}
 	r.Tools["bun"] = checkTool("bun", []string{config.ExpandPath("~/.bun/bin/bun")})
 	r.Tools["npm"] = checkTool("npm", nil)
@@ -244,28 +267,9 @@ func Run(deps Deps) *Report {
 		t.Tip = "install with `bun add -g @openai/codex` — needed for `vigolium agent audit --driver=audit` (codex platform)"
 	}
 
-	// If no system chromium found, check CfT cache only (no download).
-	if r.Tools["chromium"].Status != StatusOK {
-		if cftbrowser.IsSupported() {
-			if cached, err := cftbrowser.FindCachedBrowser(); err == nil {
-				r.Tools["chromium"] = &ToolCheck{
-					Status:  StatusOK,
-					Path:    cached,
-					Message: "Chrome for Testing (cached)",
-					Details: []string{fmt.Sprintf("found cached Chrome for Testing: %s", cached)},
-				}
-			}
-		}
+	if run("sessions_dir") {
+		r.SessionsDir = checkSessionsDir(settings)
 	}
-	// Still nothing? Attach a package-manager-specific install hint so the
-	// user can either grab a system chromium or fall back to the bundled
-	// Chrome for Testing download. A launch-failure downgrade already carries a
-	// more specific tip (see probeChromium), so don't clobber it.
-	if t := r.Tools["chromium"]; t != nil && t.Status != StatusOK && t.Tip == "" {
-		t.Tip = chromiumInstallHint()
-	}
-
-	r.SessionsDir = checkSessionsDir(settings)
 
 	// The two embedded-binary probes and the piolium probe each block on a
 	// subprocess (jstangle extraction + JS probe, `vigolium-audit list`, and
@@ -273,23 +277,36 @@ func Run(deps Deps) *Report {
 	// installed; run concurrently the wall time is bounded by the slowest single
 	// probe. Each goroutine writes only its own local, so the shared Report and
 	// its maps are populated single-threaded after the join — no data race.
+	// The audit check reads the vigolium-audit probe, so an enabled audit
+	// runs that probe when selected even if vigolium-audit itself is not.
 	var (
 		probeWG       sync.WaitGroup
 		jstangleCheck *CheckResult
 		auditBinCheck *CheckResult
 		pioliumCheck  *CheckResult
 	)
-	probeWG.Add(3)
-	go func() { defer probeWG.Done(); jstangleCheck = checkJSTangleBinary() }()
-	go func() { defer probeWG.Done(); auditBinCheck = checkAuditBinary() }()
-	go func() { defer probeWG.Done(); pioliumCheck = checkPiolium() }()
+	probe := func(on bool, dst **CheckResult, fn func() *CheckResult) {
+		if !on {
+			return
+		}
+		probeWG.Add(1)
+		go func() { defer probeWG.Done(); *dst = fn() }()
+	}
+	probe(run("jstangle"), &jstangleCheck, jstangleProbe)
+	probe(run("vigolium-audit") || (run("audit") && settings.Agent.Audit.IsEnabled()), &auditBinCheck, auditBinaryProbe)
+	probe(run("piolium"), &pioliumCheck, pioliumProbe)
 	probeWG.Wait()
 
-	r.EmbeddedBinaries = map[string]*CheckResult{
-		"jstangle":       jstangleCheck,
-		"vigolium-audit": auditBinCheck,
+	r.EmbeddedBinaries = map[string]*CheckResult{}
+	if run("jstangle") {
+		r.EmbeddedBinaries["jstangle"] = jstangleCheck
 	}
-	r.Audit = checkAudit(settings, r.EmbeddedBinaries["vigolium-audit"])
+	if run("vigolium-audit") {
+		r.EmbeddedBinaries["vigolium-audit"] = auditBinCheck
+	}
+	if run("audit") {
+		r.Audit = checkAudit(settings, auditBinCheck)
+	}
 	r.Piolium = pioliumCheck
 	// When claude (Path A) is available, frame a missing piolium as optional
 	// rather than a problem to fix — the user already has a working audit
@@ -299,11 +316,62 @@ func Run(deps Deps) *Report {
 	if r.Piolium != nil && r.Piolium.Status != StatusOK && claudeOK {
 		r.Piolium.Tip = "optional — claude (Path A) is available; install only if you also want the piolium driver: `vigolium doctor --fix --only piolium`"
 	}
-	r.TemplatesDir = checkTemplatesDir(settings)
-	r.NucleiTemplates = checkNucleiTemplates(settings)
+	if run("templates_dir") {
+		r.TemplatesDir = checkTemplatesDir(settings)
+	}
+	if run("nuclei_templates") {
+		r.NucleiTemplates = checkNucleiTemplates(settings)
+	}
 
-	r.Status = computeOverallStatus(r)
+	r.Status = computeOverallStatus(r, run("database"))
 	return r
+}
+
+// The subprocess probes Run starts, replaceable in tests.
+var (
+	jstangleProbe    = checkJSTangleBinary
+	auditBinaryProbe = checkAuditBinary
+	pioliumProbe     = checkPiolium
+)
+
+// checkChromium resolves the chromium the browser crawl would launch: a
+// system browser, else a cached Chrome for Testing; launch, when set, starts
+// it headless to prove it runs (probeChromium). A missing one carries a
+// package-manager install hint.
+func checkChromium(launch bool) *ToolCheck {
+	chromiumFallbacks := []string{"chromium-browser", "google-chrome", "google-chrome-stable"}
+	if runtime.GOOS == "darwin" {
+		chromiumFallbacks = append(chromiumFallbacks,
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+		)
+	}
+	t := checkTool("chromium", chromiumFallbacks)
+	if launch {
+		t = probeChromium(t)
+	}
+	// If no system chromium found, check CfT cache only (no download).
+	if t.Status != StatusOK && cftbrowser.IsSupported() {
+		if cached, err := cftbrowser.FindCachedBrowser(); err == nil {
+			t = &ToolCheck{
+				Status:  StatusOK,
+				Path:    cached,
+				Message: "Chrome for Testing (cached)",
+				Details: []string{fmt.Sprintf("found cached Chrome for Testing: %s", cached)},
+			}
+		}
+	}
+	// Still nothing? Attach a package-manager-specific install hint so the
+	// user can either grab a system chromium or fall back to the bundled
+	// Chrome for Testing download. A launch-failure downgrade already carries a
+	// more specific tip (see probeChromium), so don't clobber it.
+	if t.Status != StatusOK && t.Tip == "" {
+		t.Tip = chromiumInstallHint()
+	}
+	return t
 }
 
 // checkConfig reports whether the configuration file loaded. A nil error means
@@ -856,7 +924,7 @@ func checkAudit(settings *config.Settings, auditBinary *CheckResult) *CheckResul
 	mode := settings.Agent.Audit.EffectiveMode()
 	details := []string{fmt.Sprintf("mode: %s", mode)}
 	if auditBinary == nil {
-		auditBinary = checkAuditBinary()
+		auditBinary = auditBinaryProbe()
 	}
 	details = append(details, auditBinary.Details...)
 	if auditBinary.Status != StatusOK {
@@ -1283,8 +1351,11 @@ func checkNucleiTemplates(settings *config.Settings) *CheckResult {
 // missing optional mode would mislead users about what's actually broken.
 // Audit failures still surface as warning rows with install hints; they just
 // don't change the footer line.
-func computeOverallStatus(r *Report) Status {
-	if r.Database == nil || r.Database.Status == StatusError {
+//
+// databaseRan is false when Deps.Include left the database check out: a nil
+// Database then means "not asked about", not "no database".
+func computeOverallStatus(r *Report, databaseRan bool) Status {
+	if (databaseRan && r.Database == nil) || (r.Database != nil && r.Database.Status == StatusError) {
 		return "not_ready"
 	}
 	// Degraded, not not_ready: vigolium runs on defaults without a config file,

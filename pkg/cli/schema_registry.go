@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/vigolium/vigolium/pkg/browsercookie"
 	"github.com/vigolium/vigolium/pkg/cli/configcmd"
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/core"
@@ -8,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/dnsresolve"
 	"github.com/vigolium/vigolium/pkg/fuzz"
 	"github.com/vigolium/vigolium/pkg/oast"
+	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/scanplan"
 )
 
@@ -45,6 +47,8 @@ type findingViewSchema struct {
 	AdditionalEvidence []string                        `json:"additional_evidence,omitempty"`
 	Tags               []string                        `json:"tags,omitempty"`
 	CWEID              string                          `json:"cwe_id,omitempty"`
+	VulnClass          string                          `json:"vuln_class,omitempty"`
+	ClaimedSeverity    string                          `json:"claimed_severity,omitempty"`
 	CVSSScore          float64                         `json:"cvss_score,omitempty"`
 	Remediation        string                          `json:"remediation,omitempty"`
 	Status             string                          `json:"status,omitempty"`
@@ -95,8 +99,11 @@ type recordViewSchema struct {
 	Technology     []string                 `json:"technology,omitempty"`
 	Remarks        []string                 `json:"remarks,omitempty"`
 	BodyCompaction *database.BodyCompaction `json:"body_compaction,omitempty"`
-	Request        *bodyViewSchema          `json:"request,omitempty"`
-	Response       *bodyViewSchema          `json:"response,omitempty"`
+	// ResponseDecodedFrom is the content-coding the wire carried when the
+	// store decoded the body (gzip, deflate, br, zstd).
+	ResponseDecodedFrom string          `json:"response_decoded_from,omitempty"`
+	Request             *bodyViewSchema `json:"request,omitempty"`
+	Response            *bodyViewSchema `json:"response,omitempty"`
 	// UUIDShort and ResponseHeaders appear only when --fields names them.
 	UUIDShort       string `json:"uuid_short,omitempty"`
 	ResponseHeaders string `json:"response_headers,omitempty"`
@@ -171,6 +178,9 @@ type paramsExtras struct {
 	RecordsScanned int64 `json:"records_scanned"`
 	Capped         bool  `json:"capped"`
 	ValuesRedacted bool  `json:"values_redacted"`
+	// RecordsWithoutPaths (--paths only) counts JSON-body records stored
+	// without key paths.
+	RecordsWithoutPaths int64 `json:"records_without_paths,omitempty"`
 }
 
 // scanDocExtras are the scan document's top-level keys (scan_document.go).
@@ -185,10 +195,13 @@ type scanDocExtras struct {
 	StopReason   string   `json:"stop_reason,omitempty"`
 	// ScopeDropped counts the records scope rules refused, per rule class
 	// (host, path, static_file, status_code, …). Intent, not lost coverage.
-	ScopeDropped      map[string]int64        `json:"scope_dropped,omitempty"`
-	Targets           []scanDocTarget         `json:"targets"`
-	TargetsNotScanned []string                `json:"targets_not_scanned"`
-	PhaseOutcomes     []database.PhaseOutcome `json:"phase_outcomes"`
+	ScopeDropped map[string]int64 `json:"scope_dropped,omitempty"`
+	// SkippedControls is what the browser crawl did not click (the
+	// destructive-click guard): exact count, bounded sample by name.
+	SkippedControls   *scanevents.SkippedControls `json:"skipped_controls,omitempty"`
+	Targets           []scanDocTarget             `json:"targets"`
+	TargetsNotScanned []string                    `json:"targets_not_scanned"`
+	PhaseOutcomes     []database.PhaseOutcome     `json:"phase_outcomes"`
 	// Caveats is the coverage statement derived from phase_outcomes and module
 	// errors (database.CoverageCaveats).
 	Caveats []database.Caveat `json:"caveats"`
@@ -257,6 +270,57 @@ type oastPollExtras struct {
 	Findings   int `json:"findings"`
 }
 
+// kitCookiesExtras are the top-level keys of `kit cookies -j`.
+//
+// Embedded by kitCookiesReport (kit_cookies.go) rather than mirrored, so the
+// published schema and the emitted document cannot disagree.
+type kitCookiesExtras struct {
+	Domains []string `json:"domains"`
+	Scope   string   `json:"scope"`
+	// Matched are the hostnames the scope resolved to; under --scope apex
+	// these are not the domains that were asked for.
+	Matched []string `json:"matched"`
+	Count   int      `json:"count"`
+	// StorageItems counts the localStorage entries read, with --with-storage.
+	StorageItems int `json:"storage_items,omitempty"`
+	// Origins is each matching origin's localStorage, with --with-storage.
+	// Local storage is isolated per origin, not per cookie domain.
+	Origins []browsercookie.Origin `json:"origins,omitempty"`
+	// Unreadable lists per-origin stores that exist but that no export can
+	// carry (IndexedDB) — the reason a restored session can still show a login
+	// page.
+	Unreadable []browsercookie.OriginStore `json:"unreadable,omitempty"`
+	// Clone describes the profile clone, with --clone-profile.
+	Clone *browsercookie.CloneResult `json:"clone,omitempty"`
+	// Stores is one entry per cookie store consulted, each carrying its own
+	// problem. Read it before concluding a domain has no cookies.
+	Stores   []browsercookie.StoreResult `json:"stores"`
+	Warnings []string                    `json:"warnings"`
+	// Problem is the governing failure across the stores, absent when none.
+	Problem string `json:"problem,omitempty"`
+	// Output is the path -o wrote, when one was asked for.
+	Output string `json:"output,omitempty"`
+	// OutputKept is the -o path left untouched because this read produced
+	// nothing to write (no cookie, no storage) and a file was already there:
+	// an empty export never replaces a session someone saved.
+	OutputKept string `json:"output_kept,omitempty"`
+}
+
+// kitCookiesProfilesExtras are the top-level keys of `kit cookies profiles -j`.
+type kitCookiesProfilesExtras struct {
+	Count int `json:"count"`
+}
+
+// kitCookiesDoctorExtras are the top-level keys of `kit cookies doctor -j`.
+type kitCookiesDoctorExtras struct {
+	OS string `json:"os"`
+	// KeyringVia names how the decryption key is fetched on this build, which
+	// decides whether an approval granted once keeps working.
+	KeyringVia string                    `json:"keyring_via"`
+	Stores     []browsercookie.StoreInfo `json:"stores"`
+	Ready      bool                      `json:"ready"`
+}
+
 type moduleToggleExtras struct {
 	ModulesChanged int    `json:"modules_changed"`
 	ConfigPath     string `json:"config_path"`
@@ -293,7 +357,8 @@ func init() {
 	registerCommandSchema(contract.Command{Name: "endpoints", Item: database.EndpointView{},
 		Extras: endpointsExtras{}, Description: "Endpoints (origin + path template) aggregated from stored traffic."})
 	registerCommandSchema(contract.Command{Name: "params", Item: database.ParamView{},
-		Extras: paramsExtras{}, Description: "Parameters by endpoint and location, aggregated from stored traffic."})
+		Variants: []contract.Variant{{Flag: "--paths", Item: database.ParamPathView{}}},
+		Extras:   paramsExtras{}, Description: "Parameters by endpoint and location, aggregated from stored traffic; --paths rows are JSON request-body key paths per operation (types and sample counts, never values)."})
 	registerCommandSchema(contract.Command{Name: "log ls", Item: logRowView{}, Extras: logLsExtras{},
 		Description: "Native and agentic scan sessions with liveness (effective_status, stale, last_write_at); --reap adds reaped and status_files_removed."})
 	registerCommandSchema(contract.Command{Name: "scan status", Item: scanStatusView{}, ItemsKind: contract.ItemsObject,
@@ -328,6 +393,18 @@ func init() {
 		Description: "Findings saved from logged OAST callbacks; the counters say how the callbacks were attributed."})
 	registerCommandSchema(contract.Command{Name: "oast poll", Item: oast.PollResult{}, Extras: oastPollExtras{},
 		Description: "One item per kept OAST session polled: callbacks collected, how many correlated to a planted payload, and whether it was closed."})
+	registerCommandSchema(contract.Command{Name: "kit cookies", Item: browsercookie.Cookie{}, Extras: kitCookiesExtras{},
+		Description: "Cookies read from this machine's own browser profiles. stores carries one entry per store with its problem: an empty items with problem keyring_denied means the key was refused, not that the domain has none."})
+	registerCommandSchema(contract.Command{Name: "kit cookies profiles", Item: browsercookie.StoreInfo{}, Extras: kitCookiesProfilesExtras{},
+		Description: "The browser profiles on this machine, each with the label the user sees alongside its directory name, and whether its store is App-Bound encrypted or holds unflushed writes."})
+	registerCommandSchema(contract.Command{Name: "kit cookies doctor", Item: browsercookie.Check{}, Extras: kitCookiesDoctorExtras{},
+		Description: "One item per diagnostic check (ok, warn, fail, skip) with a hint where there is something to do; ready is false when anything blocking was found."})
+	registerCommandSchema(contract.Command{Name: "kit js-beautify", Item: kitBeautifyResult{}, ItemsKind: contract.ItemsObject,
+		Description: "One beautified file: content (omitted with -o), the engine's status, and with --extract/--kinds the facts by kind (endpoints, routes with guards and literal meta, assets, graphql, realtime, dom_flows, paths) plus counts; --secrets adds redacted secret matches."})
+	registerCommandSchema(contract.Command{Name: "kit unlock-walk", Item: kitUnlockWalkReport{}, ItemsKind: contract.ItemsObject,
+		Description: "One SPA walk on forged client state: landing and per-route navigation (final_url, redirected, title, text_sample), the real requests each sent with the record_uuid they are stored as, the writes failed in the browser (aborted_writes, by shape), the stubs hit, stubs_never_hit and totals. Stubbed responses are never stored or listed as requests."})
+	registerCommandSchema(contract.Command{Name: "kit viewstate-crack", Item: kitViewStateCrackResult{}, ItemsKind: contract.ItemsObject,
+		Description: "One ViewState checked against the published machineKeys: cracked with the matching algorithm, validation_key and key_source, or not; serialized false means the value was not a plain serialized stream and nothing was checked. Only the legacy (pre-4.5) MAC is checked (mac_mode)."})
 	registerCommandSchema(contract.Command{Name: "extensions lint", Item: extLintFile{}, Extras: extLintExtras{},
 		Description: "One item per linted file with its issues (severity, line, col, message, rule); summary counts them. ok is false exactly when there are errors (exit 1, lint_failed)."})
 	for _, name := range []string{"module enable", "module disable"} {

@@ -334,7 +334,7 @@ var listQueryFlagGroups = []flagGroup{
 	{"Output", []string{"fields", "compact", "full-body", "max-output-bytes", "output", "with-records", "record-fields", "record-limit", "no-header", "watch"}},
 	{"Pagination & Sort", []string{"limit", "offset", "sort", "asc", "pick", "all"}},
 	{"Data Source", []string{"stateless", "glob-db", "glob-strict", "table", "list-tables", "list-columns"}},
-	{"Replay", []string{"replay", "ignore-scope", "concurrency", "with-browser", "burp-bridge-url", "save-to-vigolium-db", "save-to-burp", "in-replace", "timeout"}},
+	{"Replay", []string{"replay", "ignore-scope", "require-scope", "concurrency", "with-browser", "burp-bridge-url", "save-to-vigolium-db", "save-to-burp", "in-replace", "timeout"}},
 	{"Burp Push", []string{"push-to-burp", "to-repeater", "send-via-burp", "http-mode"}},
 	{"Curl", []string{"curl", "curl-all", "redact-auth"}},
 }
@@ -344,7 +344,7 @@ var listQueryFlagGroups = []flagGroup{
 var inventoryFlagGroups = []flagGroup{
 	{"Filter", []string{"host", "method", "status", "path", "source", "remark", "scan-uuid", "endpoint", "location", "type"}},
 	{"Date Range", []string{"from", "to"}},
-	{"Aggregate", []string{"min-records", "min-occurrences", "collapse", "show-values"}},
+	{"Aggregate", []string{"min-records", "min-occurrences", "collapse", "show-values", "paths"}},
 	{"Pagination & Sort", []string{"limit", "offset", "sort"}},
 	{"Output", []string{"output", "fields", "compact", "max-output-bytes", "no-header"}},
 	{"Data Source", []string{"stateless", "glob-db", "glob-strict"}},
@@ -374,7 +374,7 @@ var fuzzFlagGroups = []flagGroup{
 	{"Session & Auth", []string{"auth-session", "session-id", "no-cookies"}},
 	{"Speed & Behaviour", []string{
 		"no-calibrate", "allow-baseline-error", "concurrency", "rate-limit", "max-requests", "delay", "timeout", "no-redirects",
-		"dry-run", "ignore-scope", "keep-host"}},
+		"dry-run", "ignore-scope", "require-scope", "keep-host"}},
 	{"Output", []string{"output", "all-results", "limit", "fail-on-match", "save", "fields", "compact", "max-output-bytes"}},
 	{"Burp Bridge", []string{"send-via-burp", "burp-bridge-url", "http-mode", "send-timeout", "matches-to-organizer"}},
 }
@@ -383,7 +383,7 @@ var fuzzFlagGroups = []flagGroup{
 var replayFlagGroups = []flagGroup{
 	{"Input & Selection", []string{"input", "input-file", "raw-request", "raw-request-file", "record-uuid", "finding-id", "target"}},
 	{"Bulk Filter", []string{"host", "method", "status", "path", "source", "search", "header-search", "body", "exclude-search", "exclude-header-search", "exclude-body", "from", "to", "sort", "asc", "offset", "limit", "all", "all-matches"}},
-	{"Request Options", []string{"header", "ignore-scope", "keep-host", "auth-session", "session-id", "no-cookies", "no-redirects", "baseline", "timeout", "concurrency", "with-browser"}},
+	{"Request Options", []string{"header", "ignore-scope", "require-scope", "keep-host", "auth-session", "session-id", "no-cookies", "no-redirects", "baseline", "timeout", "concurrency", "with-browser"}},
 	{"Output", []string{"output", "once", "save", "no-save", "dry-run", "in-replace", "stateless", "fields", "compact", "max-output-bytes", "excerpt-bytes"}},
 	{"Burp Bridge", []string{"burp-bridge-url", "save-to-burp", "send-via-burp", "http-mode", "send-timeout", "to-repeater", "repeater-tab", "to-organizer", "notes", "highlight"}},
 }

@@ -390,6 +390,9 @@ func (s *directScanSession) complete(ctx context.Context, repo *database.Reposit
 		for _, code := range s.phaseNotes[scanUUID] {
 			completion = runner.ApplyDirectPhaseNote(completion, code)
 		}
+		if len(config.RateClamps()) > 0 {
+			completion = runner.ApplyDirectPhaseNote(completion, database.LimitRateCeiling)
+		}
 	}
 
 	logger := database.NewScanLogger(repo, scanUUID)

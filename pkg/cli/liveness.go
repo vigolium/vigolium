@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -65,6 +66,19 @@ type livenessSignals struct {
 	lastLogAt    time.Time             // MAX(scan_logs.created_at)
 	pid          int
 	host         string
+}
+
+// scanRowLiveness is sessionLiveness for one scan uuid: its row (may be nil),
+// its status.json under sessionsDir, logFile ("" when there is none), and —
+// while the row reads running and a repository is open — its newest
+// scan_logs line. The single-scan readers (`log <uuid>`, `scan status`,
+// --resume-scan's live-scan refusal) all set up the verdict here.
+func scanRowLiveness(ctx context.Context, repo *database.Repository, row *database.Scan, sessionsDir, uuid, logFile string) Liveness {
+	var lastLog time.Time
+	if repo != nil && row != nil && row.Status == "running" {
+		lastLog = lastScanLogTimes(ctx, repo, []*database.Scan{row})[uuid]
+	}
+	return sessionLiveness(row, runner.SessionStatusPath(sessionsDir, uuid), logFile, lastLog)
 }
 
 // sessionLiveness is the single liveness function: `log`, `log ls`, `scan

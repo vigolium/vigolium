@@ -226,3 +226,41 @@ func TestFindingEvidenceCurl(t *testing.T) {
 	none, ok := findingEvidenceCurl(&database.Finding{ID: 8, URL: "https://shop.test/"})
 	require.False(t, ok, none.Curl)
 }
+
+// params --paths prints JSON body key paths with types and counts, never a
+// value, in a document the registered --paths variant describes.
+func TestParamsPathsJSON(t *testing.T) {
+	db := newInventoryTestDB(t)
+	seedInventoryRecord(t, db, "r1", "p1", "", "POST", "/api/users/7", "POST /api/users/7 HTTP/1.1\r\n\r\n",
+		database.EmbeddedParam{Name: "name", Value: "alice-secret", Type: "json", Metadata: "user.name", JSONType: "string"},
+		database.EmbeddedParam{Name: "q", Value: "x", Type: "url"})
+	seedInventoryRecord(t, db, "r2", "p1", "", "POST", "/api/users/8", "POST /api/users/8 HTTP/1.1\r\n\r\n",
+		database.EmbeddedParam{Name: "name", Value: "legacy", Type: "json"})
+	withJSON(t)
+	paramsFlags.limit = 100
+	swapGlobal(t, &paramsPaths, true)
+
+	out := captureStdout(t, func() {
+		require.NoError(t, renderParams(context.Background(), paramsCmd, db, database.QueryFilters{ProjectUUID: "p1"}, "console"))
+	})
+	require.NotContains(t, out, "alice-secret")
+	contracttest.Validate(t, "params", []byte(out))
+	env := decodeEnvelope(t, out)
+	require.EqualValues(t, 1, env.Total)
+	require.Contains(t, out, `"key_path":"user.name"`)
+	require.Contains(t, out, `"json_type":"string"`)
+	require.Contains(t, out, `"sample_count":1`)
+	require.Contains(t, out, `"records_without_paths":1`)
+}
+
+func TestParamsPathsRejectsValueFilters(t *testing.T) {
+	swapGlobal(t, &paramsPaths, true)
+	swapGlobal(t, &paramsLocations, []string{"json"})
+	var ue usageError
+	require.ErrorAs(t, validateParamsFlags(), &ue)
+	swapGlobal(t, &paramsLocations, nil)
+	swapGlobal(t, &paramsShowValues, true)
+	require.ErrorAs(t, validateParamsFlags(), &ue)
+	swapGlobal(t, &paramsShowValues, false)
+	require.NoError(t, validateParamsFlags())
+}

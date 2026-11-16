@@ -163,7 +163,7 @@ func init() {
 
 	// Source flags — exactly one of these resolves the baseline.
 	f.StringVarP(&replayRecordUUID, "record-uuid", "u", "", "Stored HTTP record UUID (or unique 8+ char prefix) to use as baseline")
-	f.BoolVar(&replayIgnoreScope, "ignore-scope", false, "Send to hosts outside the configured host scope")
+	registerSendScopeFlags(f, &replayIgnoreScope, "Send to hosts outside the configured host scope")
 	f.Int64Var(&replayFindingID, "finding-id", 0, "Finding ID — replay the finding's linked record (or its stored evidence)")
 	f.StringVarP(&replayInput, "input", "i", "", "Raw input: curl, raw HTTP, Burp XML, base64 or URL text, a path to a file holding one, or '-' for stdin")
 	f.StringVar(&replayInputFile, "input-file", "", "Read --input value from a file")
@@ -358,7 +358,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
-	if err := gate.check(src.Hostname); err != nil {
+	if err := gate.checkSource(src); err != nil {
 		return err
 	}
 	if replayDryRun {

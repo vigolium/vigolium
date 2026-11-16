@@ -48,7 +48,7 @@ func init() {
 	f.StringArrayVarP(&globalTargetFiles, "target-file", "T", nil, "File of names or URLs, one per line (repeatable)")
 	f.StringSliceVar(&dnsTypes, "type", nil, "Record types (comma-separated): "+strings.Join(dnsresolve.Types, ", ")+" (default all)")
 	f.StringArrayVar(&dnsResolvers, "resolver", nil, "Resolver host[:port] to ask (repeatable; default the system resolver)")
-	f.BoolVar(&dnsIgnoreScope, "ignore-scope", false, "Resolve names outside the configured host scope")
+	registerSendScopeFlags(f, &dnsIgnoreScope, "Resolve names outside the configured host scope")
 	f.BoolVar(&dnsNoStore, "no-store", false, "Print the answers without storing them")
 	f.IntVarP(&dnsConcurrency, "concurrency", "c", defaultSendConcurrency, "Names resolved in parallel")
 	f.DurationVar(&dnsTimeout, "timeout", 5*time.Second, "Per-query timeout")

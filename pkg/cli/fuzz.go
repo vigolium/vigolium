@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/burpbridge"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/fuzz"
@@ -225,7 +226,7 @@ func init() {
 
 	// Behaviour / output.
 	f.BoolVar(&fuzzDryRun, "dry-run", false, "Resolve positions and payloads, print what would be sent, and exit without any network traffic")
-	f.BoolVar(&fuzzIgnoreScope, "ignore-scope", false, "Fuzz a host outside the project's configured scope")
+	registerSendScopeFlags(f, &fuzzIgnoreScope, "Fuzz a host outside the project's configured scope")
 	f.BoolVar(&fuzzNoCalibrate, "no-calibrate", false, "Disable auto-calibration of the target's catch-all response")
 	f.BoolVar(&fuzzAllowBaselineError, "allow-baseline-error", false, "Run even when every baseline send fails (deltas, calibration and anomaly scoring then compare against an empty response)")
 	f.IntVarP(&fuzzConcurrency, "concurrency", "c", defaultSendConcurrency, "Concurrent requests")
@@ -367,7 +368,7 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := checkFuzzScope(gate, src.Hostname); err != nil {
+	if err := gate.checkSource(src); err != nil {
 		return err
 	}
 
@@ -694,6 +695,8 @@ func currentFuzzPace(wire fuzzWire) fuzzPace {
 	if c <= 0 {
 		c = 10 // fuzz.Run's default
 	}
+	// The multiplexed default replaces a -c the ceiling already lowered.
+	c = config.CeilIntRate("fuzz --concurrency", c)
 	return fuzzPace{
 		RateLimit:    fuzzRateLimit,
 		Concurrency:  c,
@@ -785,18 +788,6 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
-}
-
-// checkFuzzScope refuses to fuzz a host outside the project's configured
-// scope. fuzz sends a lot of traffic at whatever it's pointed at, and the
-// source is often a pasted command whose target isn't obvious at a glance, so
-// the cheap guard is worth it. A project with no host scope configured passes
-// everything, and --ignore-scope is the deliberate override.
-func checkFuzzScope(gate sendScopeGate, hostname string) error {
-	if hostname == "" {
-		return nil
-	}
-	return gate.check(hostname)
 }
 
 // fuzzDryRun is the --dry-run report: what fuzz resolved, and the exact bytes

@@ -748,6 +748,27 @@
         "flushed": {
           "type": "boolean"
         },
+        "scope_dropped": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        },
+        "skipped_controls": {
+          "$ref": "#/$defs/scanevents.SkippedControls"
+        },
+        "oast_sessions_kept": {
+          "items": {
+            "$ref": "#/$defs/scanevents.OASTSession"
+          },
+          "type": "array"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "error_code": {
+          "type": "string"
+        },
         "exports": {
           "items": {
             "$ref": "#/$defs/scanevents.Export"
@@ -1121,6 +1142,15 @@
         },
         "message": {
           "type": "string"
+        },
+        "done": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "unit": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -1198,6 +1228,22 @@
         "path"
       ]
     },
+    "scanevents.OASTSession": {
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "server": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "server"
+      ]
+    },
     "scanevents.Pace": {
       "properties": {
         "rate_limit": {
@@ -1216,6 +1262,49 @@
         "rate_limit",
         "concurrency",
         "max_per_host"
+      ]
+    },
+    "scanevents.SkippedControl": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "match": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "label",
+        "reason"
+      ]
+    },
+    "scanevents.SkippedControls": {
+      "properties": {
+        "count": {
+          "type": "integer"
+        },
+        "sample": {
+          "items": {
+            "$ref": "#/$defs/scanevents.SkippedControl"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "count"
       ]
     },
     "scanplan.AuthSession": {

@@ -10,6 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/vulnclass"
 )
 
 var moduleOpts = &moduleOptions{}
@@ -319,6 +320,10 @@ type moduleJSONEntry struct {
 	// state); a broad selection drops it below --intensity deep unless
 	// --allow-risky-payloads is set.
 	RiskHigh bool `json:"risk_high"`
+	// VulnClass is the module's reported class (pkg/vulnclass), the value its
+	// findings carry as vuln_class; "multiple" when its findings span classes
+	// and each names its own; absent for a module with no declaration.
+	VulnClass string `json:"vuln_class,omitempty"`
 }
 
 // newModuleJSONEntry is the -j row of one module.
@@ -338,6 +343,7 @@ func newModuleJSONEntry(m modules.Module, typ string, enabled bool) moduleJSONEn
 		Enabled:              enabled,
 		Tier:                 modules.ModuleTierName(tags),
 		RiskHigh:             modules.IsRiskHighModule(tags),
+		VulnClass:            string(vulnclass.ForModule(m.ID())),
 	}
 }
 

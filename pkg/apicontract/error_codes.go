@@ -31,8 +31,12 @@ const (
 const (
 	// CodeSourceMissing: the path does not exist.
 	CodeSourceMissing ErrorCode = "source_missing"
-	// CodeSourceUnreadable: the file exists but is not openable as a database:
-	// not SQLite at all, or corrupt.
+	// CodeSourceUnreadable: the file exists but cannot be read as the kind of
+	// store it should be — not SQLite at all, corrupt, or (for a browser
+	// profile read by `kit cookies`) present but undecodable for a reason with
+	// no more specific code. Not only vigolium's own database: a driver
+	// branching on this must look at `command` before concluding its project
+	// store is broken.
 	CodeSourceUnreadable ErrorCode = "source_unreadable"
 	// CodeSourceIncompatible: a valid SQLite file that is not a vigolium store.
 	CodeSourceIncompatible ErrorCode = "source_incompatible"
@@ -92,6 +96,13 @@ const (
 	CodeOutOfScope ErrorCode = "out_of_scope"
 	// CodeScanAbandoned: the scan's process stopped heartbeating.
 	CodeScanAbandoned ErrorCode = "scan_abandoned"
+	// CodeResumeMismatch: --resume-scan named a scan whose targets, scope or
+	// module selection differ from the invocation's; nothing ran (--force
+	// resumes anyway).
+	CodeResumeMismatch ErrorCode = "resume_mismatch"
+	// CodeScanRunning: --resume-scan named a scan whose process is still
+	// writing it; nothing ran.
+	CodeScanRunning ErrorCode = "scan_running"
 	// CodeWaitTimeout: `scan wait` gave up before the scan finished.
 	CodeWaitTimeout ErrorCode = "wait_timeout"
 	// CodeLoginFailed: an authentication flow did not produce a session.
@@ -103,6 +114,26 @@ const (
 	// CodeProxyAuthRequired: the ingest proxy refused a request without its
 	// token.
 	CodeProxyAuthRequired ErrorCode = "proxy_auth_required"
+)
+
+// Reading the local machine's own browser profiles (`kit cookies`).
+//
+// These exist because every failure to read a browser cookie store looks
+// identical to an empty result at the call site: the key is fetched lazily per
+// row, and a row that cannot be decrypted is skipped. Without a code of its
+// own, "the user denied the keychain prompt" reaches a driver as "that domain
+// has no cookies" — and the driver's correct response to each is the opposite
+// of its response to the other.
+const (
+	// CodeKeyringDenied: the OS keyring would not release the browser's
+	// decryption key. The approval was denied or dismissed, or there is no
+	// desktop session in which to show the prompt. Retryable once granted.
+	CodeKeyringDenied ErrorCode = "keyring_denied"
+	// CodeBrowserEncryptionUnsupported: the profile's cookies use an
+	// encryption scheme that cannot be undone from another process — Chrome
+	// 127+ App-Bound Encryption, whose key only Chrome's own elevation service
+	// can unwrap. Not retryable; drive the browser instead.
+	CodeBrowserEncryptionUnsupported ErrorCode = "browser_encryption_unsupported"
 )
 
 // Completed-but-incomplete results (exit 5).
@@ -155,8 +186,10 @@ const (
 	CodeConflict       ErrorCode = "conflict"
 	CodeRateLimited    ErrorCode = "rate_limited"
 	CodeQueueFull      ErrorCode = "queue_full"
-	CodeScanNotFound   ErrorCode = "scan_not_found"
-	CodeInternalError  ErrorCode = "internal_error"
+	// CodeScanNotFound: no scan carries the given UUID in this project (also
+	// the CLI's: scan diff, finding --new-since, --resume-scan).
+	CodeScanNotFound  ErrorCode = "scan_not_found"
+	CodeInternalError ErrorCode = "internal_error"
 	// CodeFindingNotFound: no finding carries the given id in this project.
 	CodeFindingNotFound ErrorCode = "finding_not_found"
 	// CodeMethodNotAllowed: the route exists but not for this HTTP method.
@@ -183,7 +216,9 @@ var knownErrorCodes = []ErrorCode{
 	CodeExportFailed, CodePDFFailed, CodeIngestIncomplete, CodeOutputTooLarge,
 	CodeUnsupportedInputMode, CodeInputUnparsed,
 	CodeNoTargetsInScope, CodeNoTargetsReachable, CodeOutOfScope, CodeScanAbandoned, CodeWaitTimeout,
+	CodeResumeMismatch, CodeScanRunning,
 	CodeLoginFailed, CodeNotAuthenticated, CodeProxyAuthRequired,
+	CodeKeyringDenied, CodeBrowserEncryptionUnsupported,
 	CodeTimedOut, CodeBudgetExhausted, CodePartial,
 	CodeProviderMissing, CodePreflightFailed, CodeNotReady, CodeLintFailed,
 	CodeExtensionLoadFailed,

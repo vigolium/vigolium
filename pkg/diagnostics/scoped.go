@@ -77,6 +77,10 @@ type ScopedDeps struct {
 	Target string
 	// DBDir is the database directory checked for free space ("" skips it).
 	DBDir string
+	// Include selects the scoped checks to run by id, as Deps.Include does
+	// for the report: an unselected probe (proxy dial, disk, open-file limit,
+	// target, agent endpoint) never runs. nil runs every check.
+	Include func(id string) bool
 }
 
 // Probes are the side-effecting checks, replaceable in tests.
@@ -123,6 +127,7 @@ func Scoped(purpose string, r *Report, deps ScopedDeps) (*ScopedReport, error) {
 		settings = config.DefaultSettings()
 	}
 	out := &ScopedReport{For: purpose}
+	want := func(id string) bool { return deps.Include == nil || deps.Include(id) }
 	add := func(c ScopedCheck) { out.Checks = append(out.Checks, c) }
 
 	add(fromResult("config", r.Config, ScopedDegraded, []string{"every setting (scope, pace, OAST) falls back to defaults"}))
@@ -136,11 +141,17 @@ func Scoped(purpose string, r *Report, deps ScopedDeps) (*ScopedReport, error) {
 	case PurposeScan:
 		add(fromResult("scope", r.Scope, ScopedDegraded, []string{"requests the broken rule touches"}))
 		choice := proxyenv.Resolve(deps.Proxy, deps.Getenv)
-		for _, c := range checkProxies(choice) {
-			add(c)
+		if want("proxy") {
+			for _, c := range checkProxies(choice) {
+				add(c)
+			}
 		}
-		add(checkDisk(deps.DBDir))
-		add(checkFDs())
+		if want("disk") {
+			add(checkDisk(deps.DBDir))
+		}
+		if want("fd_limit") {
+			add(checkFDs())
+		}
 		add(chromiumCheck(r))
 		add(templatesCheck(settings, r))
 		var js *CheckResult
@@ -149,13 +160,15 @@ func Scoped(purpose string, r *Report, deps ScopedDeps) (*ScopedReport, error) {
 		}
 		add(fromResult("jstangle", js, ScopedDegraded, []string{"JavaScript endpoint extraction in discovery"}))
 		add(oastCheck(r.OAST))
-		if deps.Target != "" {
+		if deps.Target != "" && want("target") {
 			for _, c := range checkTarget(deps.Target, targetProxy(choice, deps.Target)) {
 				add(c)
 			}
 		}
 	case PurposeAgent:
-		add(agentCheck(r.Agent))
+		if want("agent") {
+			add(agentCheck(r.Agent))
+		}
 		add(fromResult("sessions_dir", r.SessionsDir, ScopedDegraded, []string{"agent session persistence"}))
 		add(fromResult("templates_dir", r.TemplatesDir, ScopedDegraded, []string{"agent prompt templates"}))
 		add(chromiumCheck(r))
@@ -164,8 +177,12 @@ func Scoped(purpose string, r *Report, deps ScopedDeps) (*ScopedReport, error) {
 		if r.Queue != nil {
 			add(fromResult("queue", r.Queue, ScopedNotReady, []string{"server scan queue"}))
 		}
-		add(checkDisk(deps.DBDir))
-		add(checkFDs())
+		if want("disk") {
+			add(checkDisk(deps.DBDir))
+		}
+		if want("fd_limit") {
+			add(checkFDs())
+		}
 	}
 
 	out.Status = scopedVerdict(out.Checks)
@@ -535,4 +552,32 @@ func ProxyCheck(route *proxyenv.Route, source string) *CheckResult {
 			Tip: "Start the proxy, or remove it (" + source + ") to connect directly."}
 	}
 	return &CheckResult{Status: StatusOK, Message: msg, Details: []string{sc.Message}}
+}
+
+// ScopedOnlyCheckIDs are the check ids (`doctor --only` tokens) only a
+// purpose-scoped report runs; "target" selects target_dns, target_tcp and
+// target_tls with it. "proxy" is in both reports: see ProxyCheck.
+func ScopedOnlyCheckIDs() []string { return []string{"disk", "fd_limit", "target"} }
+
+// ScopedSelectorID is the --only id that selects the scoped check id: "target"
+// for its target_* sub-checks, else id itself.
+func ScopedSelectorID(id string) string {
+	if strings.HasPrefix(id, "target_") {
+		return "target"
+	}
+	return id
+}
+
+// Narrow keeps the checks keep admits and recomputes the verdict over them, so
+// a report narrowed with --only says whether THOSE checks are ready rather than
+// counting checks nobody asked about (and that may not have run).
+func (s *ScopedReport) Narrow(keep func(id string) bool) {
+	out := make([]ScopedCheck, 0, len(s.Checks))
+	for _, c := range s.Checks {
+		if keep(c.ID) {
+			out = append(out, c)
+		}
+	}
+	s.Checks = out
+	s.Status = scopedVerdict(out)
 }

@@ -557,6 +557,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	requesterOpts.Debug = globalDebug
 	requesterOpts.MaxPerHost = globalMaxPerHost
 	requesterOpts.NoWafPacing = globalNoWafPacing
+	config.CeilOptionsPace(requesterOpts)
 
 	if err := network.Init(requesterOpts); err != nil {
 		zap.L().Warn("Failed to initialize network for ingestion requester", zap.Error(err))

@@ -73,7 +73,7 @@ func runSessionLs(cmd *cobra.Command, args []string) error {
 		env := newMachineEnvelope(cmd, "sessions", views, int64(len(views)), 0, len(views))
 		env.DBPath = resolvedReadDBPath()
 		env.WithProjectScope(projectUUID)
-		env.With("redacted", !sessionLsShowSecrets)
+		env.Redacted = !sessionLsShowSecrets && len(views) > 0
 		return writeAgentJSON(env)
 	}
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/vigolium/vigolium/pkg/browsercookie"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -32,9 +33,24 @@ import (
 //     already (source_must_exist.go); replay and fuzz record what they send,
 //     so a fresh store is a legitimate outcome for them.
 //   - Runtime: process setup the command needs before it runs (runtimeTraits).
-//   - SendsTraffic: its job is to send requests to a target. Its document says
+//   - SendsTraffic: running it can send requests to a target (or, for dns
+//     and its dig/host shims, queries to resolvers about one). A passthrough
+//     shim carries the trait of what it translates to, ingest fetches what
+//     it reads unless told not to, and the server scans what it receives.
+//     Its document says
 //     `sends_traffic: true`, and a follow-up `query` never names it: a hint is
 //     something to run without thinking, and re-sending is not that.
+//   - WritesGlobal: it changes user-global state that outlives this run and is
+//     shared by every engagement on the machine — the config file and its
+//     scope, the module and extension sets, the active project, skills
+//     installed for coding agents, the binary itself, the OS trust store,
+//     another run's session (`scan stop`, `agent cancel` drop a sentinel into
+//     the shared sessions directory), the shared temp area, remote storage, or
+//     the `kit cookies` acknowledgement marker. A run's own artifacts (its
+//     session log, an -o file) do not count.
+//
+// `schema commands -j` publishes every row (schema_commands.go), so a driver
+// generates its reach and deny tables from this one instead of keeping its own.
 //
 // Keyed by cobra path without the root name; "" is the root itself. One table
 // rather than a declaration in each command file: the contract tests walk the
@@ -50,13 +66,13 @@ var commandTraits = map[string]commandTrait{
 	"agent":                 {Kind: kindRead, DB: dbNone, Shape: noShape("three listings (--list-agents, --list-templates, --list-modes) with different rows")},
 	"agent audit":           {Kind: kindScan, DB: dbWrite, Shape: noShape("an agent run document"), Runtime: rtStatelessWrite},
 	"agent autopilot":       {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: noShape("an agent run document"), Runtime: rtMemLimit | rtStatelessWrite | rtCoreDeps},
-	"agent cancel":          {Kind: kindMutation, DB: dbWrite},
-	"agent olium":           {Kind: kindInteractive, DB: dbWrite},
+	"agent cancel":          {Kind: kindMutation, DB: dbWrite, WritesGlobal: true},
+	"agent olium":           {Kind: kindInteractive, DB: dbWrite, SendsTraffic: true},
 	"agent query":           {Kind: kindRead, DB: dbWrite, Shape: noShape("one model answer")},
 	"agent session":         {Kind: kindRead, DB: dbRead, Shape: rowsShape().pagedByQuery()},
 	"agent swarm":           {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: noShape("an agent run document"), Runtime: rtMemLimit | rtCoreDeps},
 	"agent triage":          {Kind: kindMutation, DB: dbWrite, SendsTraffic: true},
-	"arjun":                 {Kind: kindInteractive, DB: dbNone},
+	"arjun":                 {Kind: kindInteractive, DB: dbNone, SendsTraffic: true},
 	"audit":                 {Kind: kindScan, DB: dbWrite, Shape: noShape("an agent run document"), Runtime: rtStatelessWrite},
 	"auth":                  {Kind: kindInteractive, DB: dbNone},
 	"auth check":            {Kind: kindRead, DB: dbRead, SendsTraffic: true, Shape: rowsShape().vocabFrom(sessionCheckItem{})},
@@ -72,12 +88,12 @@ var commandTraits = map[string]commandTrait{
 	"completion powershell": {Kind: kindInteractive, DB: dbNone},
 	"completion zsh":        {Kind: kindInteractive, DB: dbNone},
 	"config":                {Kind: kindInteractive, DB: dbNone},
-	"config clean":          {Kind: kindMutation, DB: dbNone},
+	"config clean":          {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"config env":            {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"config get":            {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"config ls":             {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
-	"config set":            {Kind: kindMutation, DB: dbNone},
-	"config unset":          {Kind: kindMutation, DB: dbNone},
+	"config set":            {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
+	"config unset":          {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	// Reads recent scan targets for one rule; a missing store skips it.
 	"config validate":    {Kind: kindRead, DB: dbRead, Shape: rowsShape()},
 	"db":                 {Kind: kindInteractive, DB: dbNone},
@@ -89,7 +105,7 @@ var commandTraits = map[string]commandTrait{
 	"db reset":           {Kind: kindMutation, DB: dbWrite},
 	"db seed":            {Kind: kindMutation, DB: dbWrite},
 	"db stats":           {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
-	"dig":                {Kind: kindInteractive, DB: dbNone},
+	"dig":                {Kind: kindInteractive, DB: dbNone, SendsTraffic: true},
 	"dns":                {Kind: kindRead, DB: dbWrite, SendsTraffic: true, Shape: rowsShape().owned().unpaged("sends DNS queries: a second page would resolve again").vocabFrom(dnsresolve.Answer{}).drop("records", "resolver")},
 	"doctor":             {Kind: kindRead, DB: dbRead, Shape: rowsShape()},
 	"endpoints":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery().vocabFrom(database.EndpointView{}).drop("sample_paths", "params", "request_content_types", "response_content_types", "js_outcomes", "findings_by_severity")},
@@ -100,64 +116,69 @@ var commandTraits = map[string]commandTrait{
 	"extensions example": {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"extensions lint":    {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"extensions ls":      {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
-	"extensions preset":  {Kind: kindMutation, DB: dbNone},
+	"extensions preset":  {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	// Also `extensions eval --record-uuid`, which opens the read pool itself.
-	"extensions run":   {Kind: kindRead, DB: dbRead, Shape: rowsShape()},
-	"extensions test":  {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
-	"extensions types": {Kind: kindRead, DB: dbNone, Shape: objectShape()},
-	"ffuf":             {Kind: kindInteractive, DB: dbNone},
-	"finding":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery()},
-	"finding load":     {Kind: kindMutation, DB: dbWrite},
-	"finding mark":     {Kind: kindMutation, DB: dbWrite},
-	"finding show":     {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
-	"finding verify":   {Kind: kindMutation, DB: dbWrite, SendsTraffic: true},
-	"fingerprint":      {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: scanDocumentShape},
-	"fuzz":             {Kind: kindStream, DB: dbWrite, ReadOnly: true, SendsTraffic: true, Shape: rowsShape().owned().unpaged("sends traffic: a second page would re-send every payload").vocabFrom(fuzz.Result{}).drop("anomaly_reasons")},
-	"gau":              {Kind: kindInteractive, DB: dbNone},
-	"help":             {Kind: kindInteractive, DB: dbNone},
-	"host":             {Kind: kindInteractive, DB: dbNone},
-	"hosts":            {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery().vocabFrom(hostView{}).drop("tls", "fingerprint", "not_found", "txt")},
-	"import":           {Kind: kindMutation, DB: dbWrite},
-	"ingest":           {Kind: kindMutation, DB: dbWrite, Runtime: rtCoreDeps},
-	"init":             {Kind: kindMutation, DB: dbWrite},
-	"js":               {Kind: kindRead, DB: dbWrite, Shape: noShape("one script result")},
-	"katana":           {Kind: kindInteractive, DB: dbNone},
-	"kit":              {Kind: kindInteractive, DB: dbNone},
-	"kit harvest":      {Kind: kindRead, DB: dbNone, SendsTraffic: true, Shape: noShape("rows are plain URL strings")},
-	"kit js-beautify":  {Kind: kindRead, DB: dbNone, Shape: noShape("one file's content")},
-	"kit jwt-crack":    {Kind: kindRead, DB: dbNone, Shape: noShape("one result")},
-	"kit oast":         {Kind: kindInteractive, DB: dbNone},
-	"kit oast new":     {Kind: kindRead, DB: dbNone, Shape: noShape("one session's URLs")},
-	"kit oast poll":    {Kind: kindRead, DB: dbNone, Shape: noShape("one session's interactions")},
-	"kit param-mine":   {Kind: kindRead, DB: dbNone, SendsTraffic: true, Shape: rowsShape().vocabFrom(kitParamMineItem{})},
-	"kit payload":      {Kind: kindRead, DB: dbNone, Shape: noShape("rows are plain strings")},
-	"kit secret-scan":  {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(kitSecretMatch{})},
-	"kit tmp-clean":    {Kind: kindMutation, DB: dbNone},
-	"kit wordlist":     {Kind: kindRead, DB: dbNone, Shape: noShape("rows are plain strings")},
+	"extensions run":       {Kind: kindRead, DB: dbRead, Shape: rowsShape()},
+	"extensions test":      {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
+	"extensions types":     {Kind: kindRead, DB: dbNone, Shape: objectShape()},
+	"ffuf":                 {Kind: kindInteractive, DB: dbNone, SendsTraffic: true},
+	"finding":              {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery()},
+	"finding load":         {Kind: kindMutation, DB: dbWrite},
+	"finding mark":         {Kind: kindMutation, DB: dbWrite},
+	"finding show":         {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
+	"finding verify":       {Kind: kindMutation, DB: dbWrite, SendsTraffic: true},
+	"fingerprint":          {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: scanDocumentShape},
+	"fuzz":                 {Kind: kindStream, DB: dbWrite, ReadOnly: true, SendsTraffic: true, Shape: rowsShape().owned().unpaged("sends traffic: a second page would re-send every payload").vocabFrom(fuzz.Result{}).drop("anomaly_reasons")},
+	"gau":                  {Kind: kindInteractive, DB: dbNone, SendsTraffic: true},
+	"help":                 {Kind: kindInteractive, DB: dbNone},
+	"host":                 {Kind: kindInteractive, DB: dbNone, SendsTraffic: true},
+	"hosts":                {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery().vocabFrom(hostView{}).drop("tls", "fingerprint", "not_found", "txt")},
+	"import":               {Kind: kindMutation, DB: dbWrite},
+	"ingest":               {Kind: kindMutation, DB: dbWrite, SendsTraffic: true, Runtime: rtCoreDeps},
+	"init":                 {Kind: kindMutation, DB: dbWrite, WritesGlobal: true},
+	"js":                   {Kind: kindRead, DB: dbWrite, Shape: noShape("one script result")},
+	"katana":               {Kind: kindInteractive, DB: dbNone, SendsTraffic: true},
+	"kit":                  {Kind: kindInteractive, DB: dbNone},
+	"kit cookies":          {Kind: kindRead, DB: dbNone, WritesGlobal: true, Shape: rowsShape().vocabFrom(browsercookie.Cookie{})},
+	"kit cookies doctor":   {Kind: kindRead, DB: dbNone, WritesGlobal: true, Shape: rowsShape().vocabFrom(browsercookie.Check{})},
+	"kit cookies profiles": {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(browsercookie.StoreInfo{})},
+	"kit harvest":          {Kind: kindRead, DB: dbNone, SendsTraffic: true, Shape: noShape("rows are plain URL strings")},
+	"kit js-beautify":      {Kind: kindRead, DB: dbNone, Shape: noShape("one file's content")},
+	"kit jwt-crack":        {Kind: kindRead, DB: dbNone, Shape: noShape("one result")},
+	"kit viewstate-crack":  {Kind: kindRead, DB: dbNone, Shape: noShape("one result")},
+	"kit oast":             {Kind: kindInteractive, DB: dbNone},
+	"kit oast new":         {Kind: kindRead, DB: dbNone, Shape: noShape("one session's URLs")},
+	"kit oast poll":        {Kind: kindRead, DB: dbNone, Shape: noShape("one session's interactions")},
+	"kit param-mine":       {Kind: kindRead, DB: dbNone, SendsTraffic: true, Shape: rowsShape().vocabFrom(kitParamMineItem{})},
+	"kit payload":          {Kind: kindRead, DB: dbNone, Shape: noShape("rows are plain strings")},
+	"kit secret-scan":      {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(kitSecretMatch{})},
+	"kit tmp-clean":        {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
+	"kit unlock-walk":      {Kind: kindRead, DB: dbWrite, ReadOnly: true, SendsTraffic: true, Shape: noShape("one walk report")},
+	"kit wordlist":         {Kind: kindRead, DB: dbNone, Shape: noShape("rows are plain strings")},
 	// Bare `log` lists; `log <uuid>` prints a transcript.
 	"log":             {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape()},
 	"log ls":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().vocabFrom(logRowView{}).drop("liveness_sources", "log_path", "log_size", "has_log")},
 	"match-not-found": {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().unpaged("reads stdin once: there is no second read to page").vocabFrom(matchNotFoundItem{})},
 	"module":          {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(moduleJSONEntry{}, moduleTagRow{}).drop("description", "confirmation_criteria")},
-	"module disable":  {Kind: kindMutation, DB: dbNone},
-	"module enable":   {Kind: kindMutation, DB: dbNone},
+	"module disable":  {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
+	"module enable":   {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"module ls":       {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(moduleJSONEntry{}, moduleTagRow{}).drop("description", "confirmation_criteria")},
 	"module show":     {Kind: kindRead, DB: dbNone, Shape: objectShape()},
-	"nuclei":          {Kind: kindInteractive, DB: dbNone},
+	"nuclei":          {Kind: kindInteractive, DB: dbNone, SendsTraffic: true},
 	"oast":            {Kind: kindInteractive, DB: dbNone},
 	// Ingested callbacks become findings of the scan that planted them.
 	"oast ingest":     {Kind: kindMutation, DB: dbWrite},
 	"oast poll":       {Kind: kindMutation, DB: dbWrite},
-	"olium":           {Kind: kindInteractive, DB: dbWrite},
-	"params":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery().vocabFrom(database.ParamView{}).drop("samples", "types")},
+	"olium":           {Kind: kindInteractive, DB: dbWrite, SendsTraffic: true},
+	"params":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery().vocabFrom(database.ParamView{}, database.ParamPathView{}).drop("samples", "types", "json_types")},
 	"project":         {Kind: kindInteractive, DB: dbNone},
 	"project config":  {Kind: kindRead, DB: dbWrite, Shape: objectShape().vocabFrom(projectConfigView{})},
-	"project create":  {Kind: kindMutation, DB: dbWrite},
+	"project create":  {Kind: kindMutation, DB: dbWrite, WritesGlobal: true},
 	"project current": {Kind: kindRead, DB: dbRead, Shape: objectShape()},
-	"project delete":  {Kind: kindMutation, DB: dbWrite},
+	"project delete":  {Kind: kindMutation, DB: dbWrite, WritesGlobal: true},
 	"project list":    {Kind: kindRead, DB: dbRead, Shape: rowsShape()},
 	"project rename":  {Kind: kindMutation, DB: dbWrite},
-	"project use":     {Kind: kindMutation, DB: dbWrite},
+	"project use":     {Kind: kindMutation, DB: dbWrite, WritesGlobal: true},
 	// replay/fuzz stay "write": they read a stored request, but replay
 	// --in-replace rewrites it and both are network commands whose DB touch is
 	// incidental, so the read pool buys nothing.
@@ -167,13 +188,14 @@ var commandTraits = map[string]commandTrait{
 	"scan diff":   {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned()},
 	"scan ls":     {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned()},
 	"scan status": {Kind: kindRead, DB: dbRead, Shape: objectShape().drop("plan")},
-	"scan stop":   {Kind: kindMutation, DB: dbWrite},
+	"scan stop":   {Kind: kindMutation, DB: dbWrite, WritesGlobal: true},
 	// Polls during a scan: must never take the write lock.
 	"scan wait":           {Kind: kindScan, DB: dbRead, Shape: scanDocumentShape},
 	"scan-request":        {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: scanDocumentShape, Runtime: rtMemLimit | rtStatelessHome | rtStatelessWrite},
 	"scan-url":            {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: scanDocumentShape, Runtime: rtMemLimit | rtStatelessHome | rtStatelessWrite},
 	"schema":              {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"schema all":          {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
+	"schema commands":     {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(commandTraitView{}).drop("value_flags")},
 	"schema command":      {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
 	"schema error":        {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
 	"schema event":        {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
@@ -182,38 +204,38 @@ var commandTraits = map[string]commandTrait{
 	"schema plan":         {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
 	"schema storage":      {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape()},
 	"scope":               {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
-	"scope add":           {Kind: kindMutation, DB: dbNone},
+	"scope add":           {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"scope check":         {Kind: kindRead, DB: dbNone, Shape: objectShape()},
-	"scope rm":            {Kind: kindMutation, DB: dbNone},
-	"scope set":           {Kind: kindMutation, DB: dbNone},
+	"scope rm":            {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
+	"scope set":           {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"scope view":          {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
-	"server":              {Kind: kindInteractive, DB: dbWrite, Runtime: rtCoreDeps},
+	"server":              {Kind: kindInteractive, DB: dbWrite, SendsTraffic: true, Runtime: rtCoreDeps},
 	"server ca":           {Kind: kindInteractive, DB: dbNone},
-	"server ca install":   {Kind: kindMutation, DB: dbNone},
+	"server ca install":   {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"server ca path":      {Kind: kindRead, DB: dbNone, Shape: noShape("one path")},
 	"server ca print":     {Kind: kindRead, DB: dbNone, Shape: noShape("one PEM certificate")},
-	"server ca uninstall": {Kind: kindMutation, DB: dbNone},
+	"server ca uninstall": {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"server status":       {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
-	"server stop":         {Kind: kindMutation, DB: dbNone},
+	"server stop":         {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"skills":              {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"skills gen-flags":    {Kind: kindInteractive, DB: dbNone},
 	"skills get":          {Kind: kindRead, DB: dbNone, Shape: noShape("skill text")},
-	"skills install":      {Kind: kindMutation, DB: dbNone},
+	"skills install":      {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"skills list":         {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
-	"skills uninstall":    {Kind: kindMutation, DB: dbNone},
+	"skills uninstall":    {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"status":              {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
 	"storage":             {Kind: kindInteractive, DB: dbNone},
 	"storage download":    {Kind: kindStream, DB: dbNone, Shape: noShape("object bytes")},
 	"storage ls":          {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"storage presign":     {Kind: kindRead, DB: dbNone, Shape: noShape("one URL")},
-	"storage results":     {Kind: kindMutation, DB: dbNone},
-	"storage rm":          {Kind: kindMutation, DB: dbNone},
-	"storage upload":      {Kind: kindMutation, DB: dbNone},
+	"storage results":     {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
+	"storage rm":          {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
+	"storage upload":      {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"strategy":            {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"traffic":             {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery()},
 	"traffic body":        {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
 	"traffic headers":     {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
-	"update":              {Kind: kindMutation, DB: dbNone},
+	"update":              {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"version":             {Kind: kindRead, DB: dbNone, Shape: objectShape()},
 }
 
@@ -224,6 +246,7 @@ type commandTrait struct {
 	Shape        commandShape
 	ReadOnly     bool
 	SendsTraffic bool
+	WritesGlobal bool
 	Runtime      runtimeTraits
 }
 

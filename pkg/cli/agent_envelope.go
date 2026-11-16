@@ -90,9 +90,13 @@ type agentEnvelope struct {
 	GeneratedAt   string `json:"generated_at,omitempty"`
 	GeneratedAtMS int64  `json:"generated_at_ms,omitempty"`
 
-	// Redacted says this document's raw request/response views had their
-	// credential values masked (json_redact.go). Always rendered, so a consumer
-	// never has to infer it from an absent key.
+	// Redacted says a credential-bearing view in this document was produced
+	// masked: raw request/response views under -j redaction (json_redact.go),
+	// or a command's own masking (auth sessions, cookie values, --redact-auth
+	// curl). It describes this document, not the mode: a command with no such
+	// view says false whatever the mode. Set with withRedacted, or through
+	// markRedacted by the shared view helpers; rendered as either. Always
+	// rendered, so a consumer never has to infer it from an absent key.
 	Redacted bool `json:"redacted"`
 
 	// extra carries command-specific fields. Marshaled by MarshalJSON into the
@@ -148,7 +152,6 @@ func newAgentEnvelope(command, legacyKey string, items any, total int64, offset,
 		// them must not ship a pair sampled a millisecond apart.
 		GeneratedAt:   agentTimestamp(now),
 		GeneratedAtMS: scanevents.EpochMillis(now),
-		Redacted:      jsonRedactOn,
 		extra:         map[string]any{},
 	}
 	env.legacyKey = legacyKey
@@ -272,6 +275,11 @@ var envelopeFields = map[string]bool{
 func (e *agentEnvelope) MarshalJSON() ([]byte, error) {
 	type alias agentEnvelope
 	view := (*alias)(e)
+	if !e.Redacted && viewsRedacted.Load() {
+		cp := *view
+		cp.Redacted = true
+		view = &cp
+	}
 	// Items may have been reassigned after construction (the output budget
 	// slices it); a nil there must still render as [], never null.
 	if items, _ := normalizeEnvelopeItems(e.Items); !itemsIdentical(items, e.Items) {

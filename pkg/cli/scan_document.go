@@ -1047,8 +1047,15 @@ func (b *scanDocBuilder) envelope() *agentEnvelope {
 	// Records scope refused, per rule class: what the operator's scope rules
 	// kept out of the scan. Not a coverage gap, so not a reason; said here so a
 	// rule that refuses everything is visible.
-	if dropped := database.ScopeDropped(phases); len(dropped) > 0 {
+	// Controls the browser crawl did not click (destructive-click guard): the
+	// exact count and a bounded sample by name, so a caller can decide whether
+	// one of them is an operation worth authorising on a throwaway object.
+	dropped, skipped := phaseScopeExtras(phases)
+	if dropped != nil {
 		env.With("scope_dropped", dropped)
+	}
+	if skipped != nil {
+		env.With("skipped_controls", skipped)
 	}
 	return env
 }

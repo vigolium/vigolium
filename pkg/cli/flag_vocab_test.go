@@ -109,6 +109,8 @@ var flagVocabAllowed = map[string]string{
 	"type:baseline":       "scan --baseline is a stored scan reference; replay --baseline is the switch to send the un-mutated request first",
 	"type:concurrency":    "the scan family's --concurrency takes a phase qualifier (int|phase=int); single-phase commands take a plain int",
 	"type:cookie":         "fuzz --cookie is one Cookie header (curl's -b); agent swarm --cookie is repeatable",
+	"type:name":           "kit cookies --name is a repeatable cookie-name filter; elsewhere --name is one session or project name",
+	"type:profile":        "kit cookies --profile is a repeatable browser-profile filter; elsewhere --profile names one preset",
 	"type:exclude":        "scope add/rm --exclude switches the rule to an exclude rule; export --exclude lists record types",
 	"type:exclude-header": "repeatable on fuzz (headers dropped from the request), a single search term on the read filters",
 	"type:header":         "-H/--header sends a header (repeatable); the read filters' --header is a search term (alias --header-search)",

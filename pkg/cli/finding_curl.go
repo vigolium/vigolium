@@ -91,7 +91,7 @@ func renderFindingCurl(ctx context.Context, cmd *cobra.Command, db *database.DB,
 			withDBPath(resolvedReadDBPath()),
 			withExtra("findings_total", total),
 			withExtra("skipped", len(skipped)),
-			withExtra("redacted", findingRedactAuth),
+			withRedacted(curlItemsRedacted(items)),
 		}
 		if len(items) > 0 {
 			opts = append(opts, withQuery("finding", "--id", fmt.Sprint(items[0].ID), "--json", "--with-records"))

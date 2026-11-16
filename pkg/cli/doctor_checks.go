@@ -43,6 +43,10 @@ var doctorCheckKeys = map[string]string{
 // tested setting on every check that is not ok.
 func (c *doctorContext) checks(r *diagnostics.Report) []diagnostics.Check {
 	base := r.Checks()
+	// The proxy row dials the proxy: under --only it runs only when named.
+	if !doctorOnlyIncludes("proxy") {
+		return c.withSources(base)
+	}
 	pc := diagnostics.ProxyCheck(c.proxy, c.proxySource)
 	proxy := diagnostics.Check{ID: "proxy", Group: "core", Status: string(pc.Status), Message: pc.Message, Tip: pc.Tip, Details: pc.Details}
 	if pc.Status != diagnostics.StatusOK {
@@ -55,12 +59,7 @@ func (c *doctorContext) checks(r *diagnostics.Report) []diagnostics.Check {
 	}
 	out := make([]diagnostics.Check, 0, len(base)+1)
 	inserted := false
-	for _, ch := range base {
-		if ch.Status != string(diagnostics.StatusOK) {
-			if key, ok := doctorCheckKeys[ch.ID]; ok {
-				ch.Source = key + " from " + config.SourceOf(c.sources, key)
-			}
-		}
+	for _, ch := range c.withSources(base) {
 		out = append(out, ch)
 		if ch.ID == anchor {
 			out = append(out, proxy)
@@ -71,6 +70,19 @@ func (c *doctorContext) checks(r *diagnostics.Report) []diagnostics.Check {
 		out = append(out, proxy)
 	}
 	return out
+}
+
+// withSources sets, on every check that is not ok, the source of the setting
+// it tested.
+func (c *doctorContext) withSources(checks []diagnostics.Check) []diagnostics.Check {
+	for i, ch := range checks {
+		if ch.Status != string(diagnostics.StatusOK) {
+			if key, ok := doctorCheckKeys[ch.ID]; ok {
+				checks[i].Source = key + " from " + config.SourceOf(c.sources, key)
+			}
+		}
+	}
+	return checks
 }
 
 // filter keeps the checks --only names (all of them without --only).

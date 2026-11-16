@@ -84,7 +84,7 @@ func init() {
 	f.BoolVar(&findingVerifyNoWrite, "no-write", false, "Run the verification but do not store the verdict")
 	f.BoolVar(&findingVerifyMark, "mark", false, "Also set the status: not_reproduced → false_positive, confirmed → confirmed")
 	f.StringVar(&findingVerifyFailIf, "fail-if", "", "Exit 4 when any finding gets one of these verdicts: "+strings.Join(database.VerificationVerdicts, ",")+" (comma-separated)")
-	f.BoolVar(&findingVerifyIgnoreScope, "ignore-scope", false, "Verify findings on hosts outside the configured host scope")
+	registerSendScopeFlags(f, &findingVerifyIgnoreScope, "Verify findings on hosts outside the configured host scope")
 	f.BoolVar(&findingVerifyRefetch, "refetch", false, "Passive findings: fetch a fresh response instead of re-analyzing the stored one")
 	f.Float64Var(&findingVerifyRateLimit, "rate-limit", unlimitedRate, "Max requests/second across the verification (0 = unlimited; fractions allowed)")
 	f.DurationVar(&findingVerifyTimeout, "timeout", verify.DefaultTimeout, "Time limit for verifying one finding (one request is capped at 15s)")
@@ -174,7 +174,13 @@ func runFindingVerify(cmd *cobra.Command, args []string) error {
 	if !findingVerifyDryRun {
 		hosts := make([]string, 0, len(findings))
 		for _, f := range findings {
-			hosts = append(hosts, cmp.Or(f.Hostname, f.URL))
+			// The URL when it is absolute: it carries the path the request
+			// goes to as well as the host.
+			if strings.Contains(f.URL, "://") {
+				hosts = append(hosts, f.URL)
+			} else {
+				hosts = append(hosts, cmp.Or(f.Hostname, f.URL))
+			}
 		}
 		gate, err := newSendScopeGate(findingVerifyIgnoreScope)
 		if err != nil {

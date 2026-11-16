@@ -64,6 +64,17 @@ func curlItemFrom(cmd httpmsg.CurlCommand, method, url string) curlItem {
 	}
 }
 
+// curlItemsRedacted reports whether any rendered command had a credential
+// masked (--redact-auth, or -j redaction), for the envelope's `redacted`.
+func curlItemsRedacted(items []curlItem) bool {
+	for _, it := range items {
+		if it.Redacted {
+			return true
+		}
+	}
+	return false
+}
+
 func isHTTP2Version(v string) bool {
 	v = strings.ToUpper(strings.TrimSpace(v))
 	return v == "HTTP/2" || v == "HTTP/2.0" || v == "H2"

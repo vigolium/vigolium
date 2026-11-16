@@ -22,12 +22,15 @@ var kitCmd = &cobra.Command{
 engine — no database, no scan pipeline, no project scope. Each is a stateless
 transform or probe meant to be driven by an orchestrator or run by hand.
 
+  vigolium kit cookies <domain...>           read this machine's own browser cookies
   vigolium kit secret-scan <files|dirs|->   scan bytes for leaked credentials
   vigolium kit js-beautify  <file|url|->     unminify + unpack a JS bundle
   vigolium kit oast new|poll                 mint OOB callback URLs and drain hits
   vigolium kit harvest <domain...>           collect known URLs from public archives
   vigolium kit param-mine -t <url>           discover hidden parameters an endpoint accepts
   vigolium kit jwt-crack <token>             recover a JWT's HMAC secret from a wordlist
+  vigolium kit viewstate-crack <viewstate>   check a ViewState MAC against published machineKeys
+  vigolium kit unlock-walk --profile <file>   walk SPA routes on forged client state
   vigolium kit wordlist [name]               list or print the built-in wordlists
   vigolium kit payload --class <c>           emit built-in payloads by class
   vigolium kit tmp-clean                     remove vigolium scratch left in the temp dir

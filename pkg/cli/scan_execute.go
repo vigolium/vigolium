@@ -212,6 +212,12 @@ func runNativeScanLifecycle(p nativeScanPass) (err error) {
 	repo := database.NewRepository(db)
 	zap.L().Debug("Database initialized successfully",
 		zap.String("driver", db.Driver()))
+	// A resume of a scan whose process is still writing it is refused here,
+	// before the runner builds anything (the runner itself refuses an unknown
+	// scan and a mismatched one, also before it builds anything).
+	if err := refuseResumeOfLiveScan(ctx, repo, settings, opts.ResumeScanUUID); err != nil {
+		return err
+	}
 	if !opts.Stateless {
 		reapOwnProjectAtScanStart(repo, settings, opts.ProjectUUID)
 	}

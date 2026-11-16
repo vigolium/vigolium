@@ -45,6 +45,13 @@ func withExtra(key string, value any) envOpt {
 	return func(e *agentEnvelope) { e.With(key, value) }
 }
 
+// withRedacted marks the document's credential values as masked when masked
+// is true (the envelope's `redacted`). A false never clears a mark another
+// view in the same document made.
+func withRedacted(masked bool) envOpt {
+	return func(e *agentEnvelope) { e.Redacted = e.Redacted || masked }
+}
+
 // withDBPath names the database the command actually opened.
 func withDBPath(path string) envOpt {
 	return func(e *agentEnvelope) { e.DBPath = path }

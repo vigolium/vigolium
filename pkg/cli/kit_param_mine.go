@@ -62,7 +62,7 @@ endpoint in its param-mining phase (--intensity deep or --param-mining).`,
 func init() {
 	f := kitParamMineCmd.Flags()
 	f.StringVarP(&kitParamMineTarget, "target", "t", "", "Endpoint URL to mine (or pass it as the argument)")
-	f.BoolVar(&kitParamMineIgnoreScope, "ignore-scope", false, "Mine an endpoint outside the configured host scope")
+	registerSendScopeFlags(f, &kitParamMineIgnoreScope, "Mine an endpoint outside the configured host scope")
 	f.StringVarP(&kitParamMineMethod, "method", "X", "GET", "HTTP method")
 	f.StringVarP(&kitParamMineData, "data", "d", "", "Request body (form or JSON); names are added to it")
 	f.StringArrayVarP(&kitParamMineHeaders, "header", "H", nil, "Request header 'Name: value' (repeatable)")

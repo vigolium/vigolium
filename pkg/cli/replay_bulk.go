@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -299,12 +300,24 @@ func checkBulkReplayScope(records []*database.HTTPRecord) error {
 	if err != nil {
 		return err
 	}
+	// -t replaces the destination host and keeps each record's path.
+	override := ""
 	if replayTargetURL != "" {
-		return gate.check(replayTargetURL)
+		override = parseSendTarget(replayTargetURL).host
 	}
-	hosts := make([]string, 0, len(records))
+	targets := make([]sendTarget, 0, len(records))
 	for _, rec := range records {
-		hosts = append(hosts, rec.Hostname)
+		t := parseSendTarget(rec.URL)
+		if t.host == "" {
+			t = sendTarget{host: strings.ToLower(rec.Hostname)}
+		}
+		if override != "" {
+			t.host = override
+		}
+		targets = append(targets, t)
 	}
-	return gate.check(hosts...)
+	if len(targets) == 0 && override != "" {
+		targets = append(targets, sendTarget{host: override})
+	}
+	return gate.checkTargets(targets...)
 }

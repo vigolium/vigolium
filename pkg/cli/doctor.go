@@ -44,7 +44,7 @@ var doctorCmd = &cobra.Command{
 		"The verdict comes first, then one line per check; -v adds each check's detail lines. " +
 		"-j lists the checks flat in items (id, group, status, message, affects, fix_argv, and on a failing check the setting it tested and where that came from), with the verdict as status and what still works as capabilities " +
 		"(scan, spidering, known_issue_scan, out_of_band, agent, audit). --json-legacy-keys keeps the old nested report. " +
-		"--only narrows the checks shown (and, with --fix, the ones repaired). An agent provider behind an endpoint is reported unverified; --for agent probes it.\n\n" +
+		"--only runs only the named checks (the others, their probes included, never run), the verdict counts only those, and with --fix only they are repaired. An agent provider behind an endpoint is reported unverified; --for agent probes it.\n\n" +
 		"--fix --dry-run lists each install --fix would run: what, how, where to and roughly how large.\n\n" +
 		"Exits 1 (error.code not_ready) when the verdict is not_ready; with --strict also when it is degraded. " +
 		"The report is written first either way, so -j consumers always get it on stdout.",
@@ -55,7 +55,7 @@ var doctorCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(doctorCmd)
 	doctorCmd.Flags().BoolVar(&doctorFix, "fix", false, "Auto-install/fix failing checks")
-	doctorCmd.Flags().StringSliceVar(&doctorOnly, "only", nil, "Show (and with --fix, repair) only these checks: a check id or fix key (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill,oast,agent,proxy,…)")
+	doctorCmd.Flags().StringSliceVar(&doctorOnly, "only", nil, "Run (and with --fix, repair) only these checks: a check id or fix key (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill,oast,agent,proxy,…)")
 	doctorCmd.Flags().BoolVar(&doctorDryRun, "dry-run", false, "With --fix: list each install (method, destination, approximate size) without running it")
 	doctorCmd.Flags().BoolVar(&doctorStrict, "strict", false, "Exit 1 when the verdict is degraded, not only when it is not_ready")
 	doctorCmd.Flags().BoolVarP(&doctorYes, "yes", "y", false, "With --fix: also run vendor installers piped into a shell and global agent tooling installs (bun, claude, agent-browser, pi, piolium) without asking")
@@ -74,6 +74,7 @@ func doctorScoped(report *diagnostics.Report, settings *config.Settings) *diagno
 		Stateless: globalStateless,
 		Proxy:     globalProxy,
 		Target:    doctorTarget,
+		Include:   doctorInclude(),
 	}
 	if settings != nil && settings.Database.Driver == "sqlite" && !globalStateless {
 		deps.DBDir = filepath.Dir(config.ExpandPath(settings.Database.SQLite.Path))
@@ -147,12 +148,24 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 		cfgErr = config.ApplyProjectOverlay(settings, project)
 	}
 
+	// --only names checks; an unknown name is a typo, not an empty report.
+	// Judged against every check doctor can run, before any of them runs.
+	if err := validateDoctorOnly(doctorAllChecks()); err != nil {
+		return err
+	}
+
 	deps := diagnostics.Deps{
 		Settings:           settings,
 		ConfigErr:          cfgErr,
 		ConfigPath:         effectiveConfigPath(),
 		ProbeBrowserLaunch: true,
-		ProbeNetwork:       true,
+		// The OAST resolution is the one probe that leaves the machine; it
+		// runs only when the oast check is selected (Include says so too).
+		ProbeNetwork: doctorOnlyIncludes("oast"),
+		// --only names the checks a caller asked about: the others never run
+		// (no chromium launch, no jstangle extraction), and the verdict is over
+		// the checks that did.
+		Include: doctorInclude(),
 	}
 
 	// Try to open DB (optional — report error if it fails). The error is
@@ -160,7 +173,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	// the real driver error instead of "not configured".
 	// A stateless scan never opens the project database, so `--for scan -S`
 	// does not either.
-	if !globalStateless || doctorFor != diagnostics.PurposeScan {
+	if (!globalStateless || doctorFor != diagnostics.PurposeScan) && doctorOnlyIncludes("database") {
 		db, dbErr := getDB()
 		if dbErr == nil {
 			deps.DB = db
@@ -171,13 +184,10 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	report := doctorRunDiagnostics(deps)
-	attachDoctorSkillCheck(report)
-	ctxInfo := newDoctorContext(settings, overlayProject)
-
-	// --only names checks; an unknown name is a typo, not an empty report.
-	if err := validateDoctorOnly(ctxInfo.checks(report)); err != nil {
-		return err
+	if doctorOnlyIncludes("skill") {
+		attachDoctorSkillCheck(report)
 	}
+	ctxInfo := newDoctorContext(settings, overlayProject)
 
 	// Backfill the first-run marker only when the mandatory native-scan deps are
 	// actually present (chromium + nuclei-templates). A read-only doctor on a
@@ -187,6 +197,9 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 
 	if !doctorFix {
 		scoped := doctorScoped(report, settings)
+		if scoped != nil && len(doctorOnly) > 0 {
+			scoped.Narrow(func(id string) bool { return doctorOnlyIncludes(diagnostics.ScopedSelectorID(id)) })
+		}
 		if globalJSON {
 			// Through the shared writer so this counts as the invocation's one
 			// result document and the error path does not append a second.
@@ -252,7 +265,9 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 
 	// Re-run checks to show updated status.
 	updated := doctorRunDiagnostics(deps)
-	attachDoctorSkillCheck(updated)
+	if doctorOnlyIncludes("skill") {
+		attachDoctorSkillCheck(updated)
+	}
 
 	// If --fix just installed chromium + nuclei-templates, backfill the marker
 	// so subsequent scans skip the redundant first-run check.
@@ -882,4 +897,40 @@ func doctorVendorConfirm() func(label, source string) bool {
 		}
 		return false
 	}
+}
+
+// doctorInclude is --only as diagnostics' Include predicate: nil (every
+// check) without it.
+func doctorInclude() func(id string) bool {
+	if len(doctorOnly) == 0 {
+		return nil
+	}
+	return doctorOnlyIncludes
+}
+
+// doctorAllChecks is every check doctor can report, by id: what an --only
+// token is validated against before anything runs. proxy is the CLI's own row
+// (doctorContext.checks) and a --for row; the scoped-only ids run under --for.
+func doctorAllChecks() []diagnostics.Check {
+	ids := append(diagnostics.AllCheckIDs(), "proxy")
+	ids = append(ids, diagnostics.ScopedOnlyCheckIDs()...)
+	out := make([]diagnostics.Check, len(ids))
+	for i, id := range ids {
+		out[i] = diagnostics.Check{ID: id}
+	}
+	return out
+}
+
+// doctorOnlyIncludes reports whether a check runs under --only: always without
+// it, and with it only when one of its tokens names the check.
+func doctorOnlyIncludes(id string) bool {
+	if len(doctorOnly) == 0 {
+		return true
+	}
+	for _, tok := range doctorOnly {
+		if doctorOnlyCheckID(tok, []diagnostics.Check{{ID: id}}) == id {
+			return true
+		}
+	}
+	return false
 }

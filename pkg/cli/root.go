@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/memlimit"
 	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/internal/scratch"
@@ -164,6 +165,14 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 			return err
 		}
 		if err := applyRedactionMode(); err != nil {
+			return err
+		}
+		// A misread VIGOLIUM_RATE_CEILING would send at full speed under a cap
+		// the operator believes is in force; refuse it before anything sends.
+		if err := config.ValidateRateCeilingEnv(); err != nil {
+			return asUsageError(err)
+		}
+		if err := applyRateCeilingToFlags(cmd); err != nil {
 			return err
 		}
 

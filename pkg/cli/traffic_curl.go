@@ -66,7 +66,7 @@ func renderTrafficCurl(cmd *cobra.Command, records []*database.HTTPRecord, total
 			withProjectScope(projectUUID),
 			withDBPath(resolvedReadDBPath()),
 			withExtra("skipped", len(skipped)),
-			withExtra("redacted", trafficRedactAuth),
+			withRedacted(curlItemsRedacted(items)),
 		}, extra...)
 		if len(items) > 0 {
 			opts = append(opts, withQuery("traffic", "--uuid", items[0].UUID, "--json", "--full-body"))

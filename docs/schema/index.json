@@ -210,6 +210,42 @@
     "description": "The script's return value as JSON (null for undefined)."
   },
   {
+    "name": "kit cookies",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Cookies read from this machine's own browser profiles. stores carries one entry per store with its problem: an empty items with problem keyring_denied means the key was refused, not that the domain has none."
+  },
+  {
+    "name": "kit cookies doctor",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One item per diagnostic check (ok, warn, fail, skip) with a hint where there is something to do; ready is false when anything blocking was found."
+  },
+  {
+    "name": "kit cookies profiles",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "The browser profiles on this machine, each with the label the user sees alongside its directory name, and whether its store is App-Bound encrypted or holds unflushed writes."
+  },
+  {
+    "name": "kit js-beautify",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One beautified file: content (omitted with -o), the engine's status, and with --extract/--kinds the facts by kind (endpoints, routes with guards and literal meta, assets, graphql, realtime, dom_flows, paths) plus counts; --secrets adds redacted secret matches."
+  },
+  {
+    "name": "kit unlock-walk",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One SPA walk on forged client state: landing and per-route navigation (final_url, redirected, title, text_sample), the real requests each sent with the record_uuid they are stored as, the writes failed in the browser (aborted_writes, by shape), the stubs hit, stubs_never_hit and totals. Stubbed responses are never stored or listed as requests."
+  },
+  {
+    "name": "kit viewstate-crack",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One ViewState checked against the published machineKeys: cracked with the matching algorithm, validation_key and key_source, or not; serialized false means the value was not a plain serialized stream and nothing was checked. Only the legacy (pre-4.5) MAC is checked (mac_mode)."
+  },
+  {
     "name": "log",
     "kind": "command",
     "envelope_kind": "read",
@@ -261,7 +297,7 @@
     "name": "params",
     "kind": "command",
     "envelope_kind": "read",
-    "description": "Parameters by endpoint and location, aggregated from stored traffic."
+    "description": "Parameters by endpoint and location, aggregated from stored traffic; --paths rows are JSON request-body key paths per operation (types and sample counts, never values)."
   },
   {
     "name": "project create",
@@ -358,6 +394,12 @@
     "kind": "command",
     "envelope_kind": "scan",
     "description": "The scan document: one document per invocation, items are finding views."
+  },
+  {
+    "name": "schema commands",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One row per command: kind, db (none/read/write), reads_store, mutates, writes_global, sends_traffic, read_only_flag and value_flags; global_value_flags are the root's."
   },
   {
     "name": "schema flags",
@@ -562,5 +604,10 @@
     "name": "scan-dry-run",
     "kind": "document",
     "description": "The scan --dry-run / run \u003cphase\u003e --dry-run -j document: items are the plan's phases, plan the full plan, dry_run true."
+  },
+  {
+    "name": "unlock-profile",
+    "kind": "document",
+    "description": "The kit unlock-walk --profile input: origin, localStorage/sessionStorage seeds, cookies, response stubs (same-origin, 2xx/4xx/5xx, body up to 64 KiB) and routes (maxRoutes default 40, at most 200; settleMs default 2500, at most 10000)."
   }
 ]

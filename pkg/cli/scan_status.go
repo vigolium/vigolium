@@ -240,12 +240,7 @@ func (r *scanStatusReader) read(ctx context.Context, uuid string) (*scanStatusVi
 		return nil, codedErrorf(apicontract.CodeNotFound, "no scan found for uuid %s (checked the database and %s)", uuid, terminal.ShortenHome(statusPath))
 	}
 
-	var lastLog time.Time
-	if row != nil && row.Status == "running" && r.repo != nil {
-		lastLog = lastScanLogTimes(ctx, r.repo, []*database.Scan{row})[uuid]
-	}
-	logFile := resolveSessionLogPath(filepath.Join(r.sessionsDir, uuid))
-	lv := sessionLiveness(row, statusPath, logFile, lastLog)
+	lv := scanRowLiveness(ctx, r.repo, row, r.sessionsDir, uuid, resolveSessionLogPath(filepath.Join(r.sessionsDir, uuid)))
 
 	view := buildScanStatusView(uuid, row, file, lv, livenessNow())
 	if row != nil {

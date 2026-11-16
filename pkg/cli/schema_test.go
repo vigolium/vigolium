@@ -366,7 +366,7 @@ var schemaPending = map[string]string{
 	"extensions":       pendingTypedItems, "extensions docs": pendingTypedItems, "extensions ls": pendingTypedItems,
 	"finding verify": pendingTypedItems,
 	"init":           pendingTypedItems,
-	"kit harvest":    pendingTypedItems, "kit js-beautify": pendingTypedItems, "kit jwt-crack": pendingTypedItems,
+	"kit harvest":    pendingTypedItems, "kit jwt-crack": pendingTypedItems,
 	"kit oast new": pendingTypedItems, "kit oast poll": pendingTypedItems, "kit param-mine": pendingTypedItems,
 	"kit payload": pendingTypedItems, "kit secret-scan": pendingTypedItems, "kit tmp-clean": pendingTypedItems,
 	"kit wordlist": pendingTypedItems,
@@ -387,7 +387,7 @@ var schemaPending = map[string]string{
 
 // schemaPendingCeiling pins the ratchet's size: lower it when a command gets
 // a schema; never raise it.
-const schemaPendingCeiling = 60
+const schemaPendingCeiling = 59
 
 // TestSchemaCoverageRatchet: every runnable non-interactive command either has
 // a registered schema or a reason in schemaPending, never both.

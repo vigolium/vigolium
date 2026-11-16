@@ -49,6 +49,22 @@ func TestDirectOASTConfig(t *testing.T) {
 		assert.Equal(t, "https://{nonce}.cb.example", cfg.OastURL)
 	})
 
+	t.Run("--offline turns OAST off, --oast-url included", func(t *testing.T) {
+		writeOASTConfig(t, "oast:\n  enabled: true\n")
+		swapGlobal(t, &scanOpts.OastURL, "https://cb.example")
+		swapGlobal(t, &globalOffline, true)
+		cfg, err := (&directScanSession{}).oastConfig()
+		require.NoError(t, err)
+		assert.Nil(t, cfg, "an --offline direct scan must register and plant nothing out of band")
+	})
+
+	t.Run("settings key offline turns OAST off", func(t *testing.T) {
+		writeOASTConfig(t, "offline: true\noast:\n  enabled: true\n")
+		cfg, err := (&directScanSession{}).oastConfig()
+		require.NoError(t, err)
+		assert.Nil(t, cfg)
+	})
+
 	t.Run("oast.enabled false wins, as on scan", func(t *testing.T) {
 		writeOASTConfig(t, "oast:\n  enabled: false\n")
 		scanOpts.OastURL = "https://cb.example"

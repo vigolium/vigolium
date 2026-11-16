@@ -1,6 +1,9 @@
 package cli
 
-import "github.com/vigolium/vigolium/pkg/types"
+import (
+	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/types"
+)
 
 // globalFlagsToOptions copies the global transport and pace flags into opts:
 // --timeout, --proxy, --verbose, --debug, --dump-traffic, --concurrency,
@@ -24,6 +27,8 @@ func globalFlagsToOptions(opts *types.Options) {
 	opts.NoWafPacing = globalNoWafPacing
 	opts.MaxHostError = globalMaxHostError
 	opts.Offline = globalOffline
+	// VIGOLIUM_RATE_CEILING bounds the three dials whatever set them.
+	config.CeilOptionsPace(opts)
 }
 
 // globalScanFlagsToOptions is globalFlagsToOptions plus the global flags a
@@ -36,4 +41,5 @@ func globalScanFlagsToOptions(opts *types.Options) {
 	opts.ConfigPath = globalConfig
 	opts.MaxFindingsPerModule = globalMaxFindingsPerModule
 	opts.NoTechFilter = globalNoTechFilter
+	opts.ResumeForce = globalForce
 }

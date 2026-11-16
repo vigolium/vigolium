@@ -22,6 +22,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/utils/textutil"
+	"github.com/vigolium/vigolium/pkg/vulnclass"
 )
 
 // This file builds the compact, token-aware JSON views emitted by the read/query
@@ -632,7 +633,7 @@ var (
 		"response_content_type", "response_content_length", "response_time_ms",
 		"response_words", "source", "scan_uuid", "sent_at", "response_title", "ip",
 		"risk_score", "surface_score", "is_authenticated", "technology", "remarks",
-		"body_compaction", "request", "response",
+		"body_compaction", "response_decoded_from", "request", "response",
 		// Emitted only when --fields names them: uuid_short is the resolvable
 		// 8-character prefix (record_ref.go), response_headers the response's
 		// header block without its body.
@@ -642,7 +643,7 @@ var (
 		"id", "finding_hash", "severity", "confidence", "module_id", "module_name", "module_type",
 		"finding_source", "record_kind", "evidence_grade", "short", "description",
 		"url", "hostname", "matched_at", "extracted_results", "additional_evidence",
-		"tags", "cwe_id", "cvss_score", "remediation", "status", "status_note", "status_actor", "scan_uuid",
+		"tags", "cwe_id", "vuln_class", "claimed_severity", "cvss_score", "remediation", "status", "status_note", "status_actor", "scan_uuid",
 		"agentic_scan_uuid", "repo_name", "source_file", "found_at",
 		"http_record_uuids", "origin_record_uuid", "insertion_point", "payload", "verification", "verified_at",
 		"response_evidence", "request", "response",
@@ -781,6 +782,12 @@ func compactRecordView(rec *database.HTTPRecord, opts agentViewOptions) map[stri
 	if rec.BodyCompaction != nil {
 		m["body_compaction"] = rec.BodyCompaction
 	}
+	// Present only on a record whose body the store decoded: the response
+	// below is the decoded body, and this is the content-coding the wire
+	// carried.
+	if rec.ResponseDecodedFrom != "" {
+		m["response_decoded_from"] = rec.ResponseDecodedFrom
+	}
 
 	// Opt-in keys: computed only when asked for, so a default row pays nothing.
 	if wantsField(opts.fields, "uuid_short") {
@@ -865,6 +872,16 @@ func compactFindingView(f *database.Finding, records []*database.HTTPRecord, opt
 	}
 	if f.CWEID != "" {
 		m["cwe_id"] = f.CWEID
+	}
+	// The reported class (pkg/vulnclass). A row stored before the column
+	// existed falls back to the module's declared class.
+	if vc := findingVulnClass(f); vc != "" {
+		m["vuln_class"] = vc
+	}
+	// What the module asked for when the emit-time rule filed it lower
+	// (Tentative caps at suspect); absent when severity is the module's own.
+	if f.ClaimedSeverity != "" {
+		m["claimed_severity"] = f.ClaimedSeverity
 	}
 	if f.CVSSScore != 0 {
 		m["cvss_score"] = f.CVSSScore
@@ -967,6 +984,15 @@ func compactFindingView(f *database.Finding, records []*database.HTTPRecord, opt
 		}
 	}
 	return projectFields(m, opts.fields, pinned...)
+}
+
+// findingVulnClass is the finding's stored vuln_class, or the module's
+// declared class for a row written before the column existed.
+func findingVulnClass(f *database.Finding) string {
+	if f.VulnClass != "" {
+		return f.VulnClass
+	}
+	return string(vulnclass.ForFinding("", f.ModuleID))
 }
 
 // findingViewFromEvent renders an in-memory scan result in the same shape

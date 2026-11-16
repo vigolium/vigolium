@@ -10,6 +10,7 @@
             "body_decode_failed",
             "body_incomplete",
             "body_unavailable",
+            "browser_encryption_unsupported",
             "budget_exhausted",
             "config_invalid",
             "conflict",
@@ -27,6 +28,7 @@
             "interrupted",
             "invalid_project_uuid",
             "invalid_request",
+            "keyring_denied",
             "lint_failed",
             "login_failed",
             "method_not_allowed",
@@ -48,8 +50,10 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
+            "scan_running",
             "schema_outdated",
             "schema_too_new",
             "service_unavailable",
@@ -198,6 +202,60 @@
         "bytes"
       ]
     },
+    "database.ParamPathView": {
+      "properties": {
+        "endpoint_id": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "template": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "key_path": {
+          "type": "string"
+        },
+        "json_type": {
+          "type": "string"
+        },
+        "json_types": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sample_count": {
+          "type": "integer"
+        },
+        "operation_records": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "endpoint_id",
+        "origin",
+        "template",
+        "method",
+        "key_path",
+        "json_type",
+        "json_types",
+        "sample_count",
+        "operation_records"
+      ]
+    },
     "database.ParamView": {
       "properties": {
         "endpoint_id": {
@@ -335,7 +393,15 @@
     },
     "items": {
       "items": {
-        "$ref": "#/$defs/database.ParamView"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/database.ParamView"
+          },
+          {
+            "$ref": "#/$defs/database.ParamPathView"
+          }
+        ],
+        "description": "The default row, or the row shape selected by: --paths"
       },
       "type": "array"
     },
@@ -422,6 +488,9 @@
     },
     "values_redacted": {
       "type": "boolean"
+    },
+    "records_without_paths": {
+      "type": "integer"
     }
   },
   "additionalProperties": false,
@@ -441,5 +510,5 @@
     "kind"
   ],
   "title": "vigolium params -j",
-  "description": "Parameters by endpoint and location, aggregated from stored traffic."
+  "description": "Parameters by endpoint and location, aggregated from stored traffic; --paths rows are JSON request-body key paths per operation (types and sample counts, never values)."
 }

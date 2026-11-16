@@ -132,6 +132,12 @@
         "cwe_id": {
           "type": "string"
         },
+        "vuln_class": {
+          "type": "string"
+        },
+        "claimed_severity": {
+          "type": "string"
+        },
         "cvss_score": {
           "type": "number"
         },
@@ -314,6 +320,9 @@
         "body_compaction": {
           "$ref": "#/$defs/database.BodyCompaction"
         },
+        "response_decoded_from": {
+          "type": "string"
+        },
         "request": {
           "$ref": "#/$defs/cli.bodyViewSchema"
         },
@@ -374,6 +383,7 @@
             "body_decode_failed",
             "body_incomplete",
             "body_unavailable",
+            "browser_encryption_unsupported",
             "budget_exhausted",
             "config_invalid",
             "conflict",
@@ -391,6 +401,7 @@
             "interrupted",
             "invalid_project_uuid",
             "invalid_request",
+            "keyring_denied",
             "lint_failed",
             "login_failed",
             "method_not_allowed",
@@ -412,8 +423,10 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
+            "scan_running",
             "schema_outdated",
             "schema_too_new",
             "service_unavailable",
@@ -554,6 +567,7 @@
             "body_decode_failed",
             "body_incomplete",
             "body_unavailable",
+            "browser_encryption_unsupported",
             "budget_exhausted",
             "config_invalid",
             "conflict",
@@ -571,6 +585,7 @@
             "interrupted",
             "invalid_project_uuid",
             "invalid_request",
+            "keyring_denied",
             "lint_failed",
             "login_failed",
             "method_not_allowed",
@@ -592,8 +607,10 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
+            "scan_running",
             "schema_outdated",
             "schema_too_new",
             "service_unavailable",
@@ -774,6 +791,15 @@
         },
         "message": {
           "type": "string"
+        },
+        "done": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "unit": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -940,6 +966,15 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "progress": {
+          "$ref": "#/$defs/database.PhaseProgress"
+        },
+        "skipped_controls": {
+          "items": {
+            "$ref": "#/$defs/scanevents.SkippedControl"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -948,6 +983,24 @@
         "phase",
         "state",
         "duration_ms"
+      ]
+    },
+    "database.PhaseProgress": {
+      "properties": {
+        "done": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "unit": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "done"
       ]
     },
     "database.TargetIssue": {
@@ -1030,6 +1083,49 @@
         "md5",
         "sha256",
         "size"
+      ]
+    },
+    "scanevents.SkippedControl": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "match": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "label",
+        "reason"
+      ]
+    },
+    "scanevents.SkippedControls": {
+      "properties": {
+        "count": {
+          "type": "integer"
+        },
+        "sample": {
+          "items": {
+            "$ref": "#/$defs/scanevents.SkippedControl"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "count"
       ]
     },
     "scanplan.AuthSession": {
@@ -2283,6 +2379,9 @@
         "type": "integer"
       },
       "type": "object"
+    },
+    "skipped_controls": {
+      "$ref": "#/$defs/scanevents.SkippedControls"
     },
     "targets": {
       "anyOf": [
