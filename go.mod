@@ -12,6 +12,7 @@ require (
 	github.com/andybalholm/cascadia v1.3.5
 	github.com/antchfx/htmlquery v1.3.7
 	github.com/bluele/gcache v0.0.2
+	github.com/browserutils/kooky v0.2.10
 	github.com/coregx/ahocorasick v0.3.1
 	github.com/dustin/go-humanize v1.1.0
 	github.com/evanw/esbuild v0.28.2
@@ -161,6 +162,8 @@ require (
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/boombuler/barcode v1.1.0 // indirect
 	github.com/brianvoe/gofakeit/v7 v7.18.0 // indirect
+	github.com/browserutils/ese v0.0.0-20260314233042-37b6a03a93ce // indirect
+	github.com/browserutils/sqlite3 v0.0.2 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.4 // indirect
@@ -250,6 +253,7 @@ require (
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/goccy/go-json v0.11.2 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
+	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/gofiber/schema v1.9.0 // indirect
 	github.com/gofiber/utils/v2 v2.6.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
@@ -259,6 +263,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
+	github.com/gonuts/binary v0.2.0 // indirect
 	github.com/google/certificate-transparency-go v1.4.0 // indirect
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/google/go-github/v30 v30.1.0 // indirect
@@ -296,6 +301,7 @@ require (
 	github.com/kaiakz/ubuffer v0.0.0-20200803053910-dd1083087166 // indirect
 	github.com/kataras/jwt v0.3.0 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
+	github.com/keybase/go-keychain v0.0.1 // indirect
 	github.com/kitabisa/go-ci v1.0.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.1 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
@@ -454,6 +460,7 @@ require (
 	github.com/ysmood/leakless v0.9.0 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	github.com/zalando/go-keyring v0.2.7 // indirect
 	github.com/zcalusic/sysinfo v1.1.3 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
