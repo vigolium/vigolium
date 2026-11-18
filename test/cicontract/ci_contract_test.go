@@ -51,10 +51,16 @@ func loadWorkflow(t *testing.T) workflow {
 
 func TestCIWorkflow_Triggers(t *testing.T) {
 	wf := loadWorkflow(t)
-	for _, ev := range []string{"pull_request", "push", "schedule", "workflow_dispatch"} {
+	for _, ev := range []string{"pull_request", "push", "workflow_dispatch"} {
 		if _, ok := wf.On[ev]; !ok {
 			t.Errorf("ci.yml must trigger on %s", ev)
 		}
+	}
+	// The heavy suite is dispatch-only by choice: a cron here would run the
+	// whole nightly set (race, canary, benchmarks, cross compile) against the
+	// single maintained branch every day. Re-add deliberately, not by accident.
+	if _, ok := wf.On["schedule"]; ok {
+		t.Error("ci.yml must not declare a schedule trigger; heavy jobs are workflow_dispatch only")
 	}
 	push := wf.On["push"]
 	var p struct {
@@ -66,9 +72,9 @@ func TestCIWorkflow_Triggers(t *testing.T) {
 	}
 }
 
-// Every job outside the fast gate must be restricted to nightly/manual runs,
-// so a pull request or a push to main runs lint + unit only.
-func TestCIWorkflow_HeavyJobsAreNightlyOnly(t *testing.T) {
+// Every job outside the fast gate must be restricted to dispatched runs, so a
+// pull request or a push to main runs lint + unit only.
+func TestCIWorkflow_HeavyJobsAreDispatchOnly(t *testing.T) {
 	wf := loadWorkflow(t)
 	for _, name := range fastGate {
 		job, ok := wf.Jobs[name]
@@ -82,7 +88,7 @@ func TestCIWorkflow_HeavyJobsAreNightlyOnly(t *testing.T) {
 	}
 	for _, name := range []string{"race", "postgres", "canary", "benchmark-whitebox", "benchmark-blackbox"} {
 		if _, ok := wf.Jobs[name]; !ok {
-			t.Errorf("nightly job %q missing", name)
+			t.Errorf("heavy job %q missing", name)
 		}
 	}
 	for name, job := range wf.Jobs {

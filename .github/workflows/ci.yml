@@ -5,18 +5,20 @@ name: CI
 #     job includes the static benchmark-definition lint
 #     (test/benchmark/harness/definitions_lint_test.go), so a stale module ID or
 #     an unexplained soft case fails a PR.
-#   - schedule (nightly) and workflow_dispatch: everything else (race,
-#     PostgreSQL e2e, canary, whitebox benchmark, blackbox benchmark, cross
-#     compile, coverage, govulncheck, SBOM). Every such job carries
+#   - workflow_dispatch: everything else (race, PostgreSQL e2e, canary,
+#     whitebox benchmark, blackbox benchmark, cross compile, coverage,
+#     govulncheck, SBOM). Every such job carries
 #     `if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}`;
 #     test/cicontract checks that.
+#   - There is deliberately NO `schedule:` trigger: the heavy suite runs only
+#     when a human dispatches it (`gh workflow run ci.yml`). The `schedule`
+#     half of each job condition is kept so re-adding a cron here is a
+#     one-line change; test/cicontract asserts the trigger stays absent.
 #   - `gh workflow run ci.yml -f macos=true` also runs the macOS job.
 on:
   pull_request:
   push:
     branches: [main]
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       macos:
@@ -26,7 +28,7 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  # A newer push to the same PR supersedes the running gate; nightly and
+  # A newer push to the same PR supersedes the running gate; dispatched and
   # main-branch runs are never cancelled.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
