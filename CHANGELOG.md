@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.8] - 2026-11-23
+
+### Added
+
+- `import <vigolium.sqlite> --host <pattern>` merges only that host's records, findings and their dependent rows.
+- `import --skip-findings` merges a SQLite source without findings, their history or OAST interactions.
+- `--host` and `--skip-findings` on a non-SQLite source are refused (`source_incompatible`, exit 2).
+- `version` features `import-sqlite-host` and `import-skip-findings`.
+
+### Changed
+
+- CI: nightly cron dropped; heavy jobs run on dispatch only.
+
 ## [v0.5.7] - 2026-11-15
 
 ### Security

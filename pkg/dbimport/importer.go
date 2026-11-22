@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/audit"
 	"github.com/vigolium/vigolium/pkg/database"
 )
@@ -115,6 +116,14 @@ type Options struct {
 	// findings.
 	SkipFindings bool
 
+	// Hosts narrows a SQLite→SQLite merge to rows about these hosts; see
+	// database.MergeOptions.Hosts for the forms and for which tables follow it.
+	// Unlike the Skip* options it is never ignored: ImportPath refuses it for a
+	// source that is not a vigolium SQLite database (SQLiteOnlyOptionError),
+	// because an import that dropped a host filter would copy every other host's
+	// traffic while its caller believed it had narrowed the copy.
+	Hosts []string
+
 	// PreserveProjectUUID keeps each JSONL row's own project_uuid instead of
 	// re-homing it onto the projectUUID argument. A row with no project_uuid of
 	// its own still gets the argument.
@@ -170,29 +179,78 @@ const recordFlushBatch = 500
 // budget bounds batching, it never rejects data.
 const recordFlushBytes = 32 << 20
 
-// ImportPath dispatches based on filesystem inspection of path: directory →
-// audit folder, .tar.gz/.tgz/.zip → archive, a vigolium SQLite result database
-// → SQLite merge, anything else → JSONL.
-func ImportPath(ctx context.Context, repo *database.Repository, path, projectUUID string, opts Options) (*Result, error) {
+// SourceKind is the importer a local import source dispatches to.
+type SourceKind string
+
+// The source kinds, worded for an error message ("<path> is a JSONL file").
+const (
+	SourceAudit   SourceKind = "audit folder"
+	SourceArchive SourceKind = "archive"
+	SourceSQLite  SourceKind = "vigolium SQLite database"
+	SourceJSONL   SourceKind = "JSONL file"
+)
+
+// DetectSourceKind inspects path the way ImportPath dispatches on it: directory
+// → audit folder, .tar.gz/.tgz/.zip → archive, a SQLite file (any extension —
+// .sqlite/.sqlite3/.db or none — detected by its magic header) → SQLite merge,
+// anything else → JSONL. Exported so a caller can refuse an option that does
+// not apply to a source before any import work starts.
+func DetectSourceKind(path string) (SourceKind, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("cannot access path: %w", err)
+		return "", fmt.Errorf("cannot access path: %w", err)
 	}
 	if info.IsDir() {
-		return ImportAudit(ctx, repo, path, projectUUID, opts)
+		return SourceAudit, nil
 	}
 	switch ArchiveExt(path) {
 	case ".tar.gz", ".tgz", ".zip":
-		return ImportArchive(ctx, repo, path, projectUUID, opts)
+		return SourceArchive, nil
 	}
-	// A vigolium SQLite result database (any extension — .sqlite/.sqlite3/.db or
-	// none — detected by its magic header) is merged into the destination DB
-	// rather than parsed as JSONL text.
 	isSQLite, err := database.IsSQLiteFile(path)
+	if err != nil {
+		return "", err
+	}
+	if isSQLite {
+		return SourceSQLite, nil
+	}
+	return SourceJSONL, nil
+}
+
+// SQLiteOnlyOptionError is an import option that only a SQLite→SQLite merge
+// honours, given for a source of another kind.
+type SQLiteOnlyOptionError struct {
+	Option string
+	Path   string
+	Kind   SourceKind
+}
+
+func (e *SQLiteOnlyOptionError) Error() string {
+	return fmt.Sprintf("%s applies only to a %s source; %s is a %s", e.Option, SourceSQLite, e.Path, e.Kind)
+}
+
+// Code classifies the refusal for the CLI's error envelope.
+func (e *SQLiteOnlyOptionError) Code() apicontract.ErrorCode {
+	return apicontract.CodeSourceIncompatible
+}
+
+// ImportPath dispatches on DetectSourceKind: an audit folder, an archive, a
+// vigolium SQLite result database (merged into the destination DB rather than
+// parsed as JSONL text) or JSONL.
+func ImportPath(ctx context.Context, repo *database.Repository, path, projectUUID string, opts Options) (*Result, error) {
+	kind, err := DetectSourceKind(path)
 	if err != nil {
 		return nil, err
 	}
-	if isSQLite {
+	if len(opts.Hosts) > 0 && kind != SourceSQLite {
+		return nil, &SQLiteOnlyOptionError{Option: "a host filter", Path: path, Kind: kind}
+	}
+	switch kind {
+	case SourceAudit:
+		return ImportAudit(ctx, repo, path, projectUUID, opts)
+	case SourceArchive:
+		return ImportArchive(ctx, repo, path, projectUUID, opts)
+	case SourceSQLite:
 		return ImportSQLite(ctx, repo, path, projectUUID, opts)
 	}
 	f, err := os.Open(path)
@@ -211,8 +269,8 @@ func ImportPath(ctx context.Context, repo *database.Repository, path, projectUUI
 //
 // Each row keeps its original project_uuid, so imported data stays scoped to
 // whatever project it was scanned under; the projectUUID argument (the caller's
-// active project) is intentionally not applied here. opts is likewise not
-// applied: AgenticScanUUID (attach) and OriginalSource (storage-URL recording)
+// active project) is intentionally not applied here. Of opts, only the merge
+// options (the Skip* options and Hosts) apply: AgenticScanUUID (attach) and OriginalSource (storage-URL recording)
 // are single-scan/audit concepts that don't map onto a bulk merge of a whole
 // database of scans — findings keep their own agentic_scan_uuid from the source.
 // Requires a SQLite destination — a Postgres destination returns a clear error
@@ -224,6 +282,7 @@ func ImportSQLite(ctx context.Context, repo *database.Repository, srcPath, proje
 			SkipHTTPRecords:  opts.SkipHTTPRecords,
 			SkipRecordBodies: opts.SkipRecordBodies,
 			SkipFindings:     opts.SkipFindings,
+			Hosts:            opts.Hosts,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("merge SQLite database %s: %w", srcPath, err)

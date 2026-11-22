@@ -109,7 +109,7 @@ Import scan data into the current project's database. The input is **auto-detect
 
 - **Audit output folder** (directory): produced by `vigolium agent audit` (vigolium-audit or piolium leg) — contains `audit-state.json` and `findings-draft/`. Creates a new `agentic_scan` row plus all findings.
 - **JSONL export** (file): each line is an envelope like `{"type": "http_record", "data": {...}}` or `{"type": "finding", "data": {...}}` — the output of `vigolium export --format jsonl`. Findings are deduplicated on save.
-- **Vigolium SQLite database** (`.sqlite`/`.sqlite3`/`.db`, detected by header): a **lossless, idempotent SQLite→SQLite merge** of the scan-result tables, deduped on natural keys (re-importing the same DB is a no-op). Merged rows keep their **original** `project_uuid`. Requires a SQLite destination.
+- **Vigolium SQLite database** (`.sqlite`/`.sqlite3`/`.db`, detected by header): a **lossless, idempotent SQLite→SQLite merge** of the scan-result tables, deduped on natural keys (re-importing the same DB is a no-op). Merged rows keep their **original** `project_uuid`. Requires a SQLite destination. `--host <pattern>` (one per import, `*` wildcards, case-insensitive) merges only that host's records and findings; `--skip-findings` leaves findings out — e.g. `import --db new.sqlite old.sqlite --host acme.test --skip-findings` seeds one host's traffic. Both are refused (exit 2) for any other source.
 - **Archive** (`.tar.gz`/`.tgz`/`.zip`) containing any of the above.
 - **`gs://<project-uuid>/<key>` URL** to any of the above (downloaded, then imported).
 

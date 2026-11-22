@@ -28,6 +28,7 @@ var (
 	importBurpBridgeURL string
 	importSearchFilter  string
 	importIncludeScopes bool
+	importSkipFindings  bool
 )
 
 var importCmd = &cobra.Command{
@@ -49,7 +50,9 @@ Supported inputs:
     and OAST interactions, deduped on their natural keys (re-importing the same
     database is a no-op). Each row keeps its original project. The destination is
     the --db target, e.g. 'vigolium import --db main.sqlite other-scan.sqlite'
-    (or the configured default database when --db is omitted).
+    (or the configured default database when --db is omitted). --host narrows
+    the merge to one host's records, findings and the rows that follow them;
+    --skip-findings leaves the findings out. Both are refused for other sources.
   - .tar.gz / .tgz / .zip archive containing an audit folder or JSONL
   - gs://<project-uuid>/<key> URL to any of the above (downloaded then imported)
 
@@ -92,6 +95,8 @@ func init() {
 	registerImportBridgeFilterFlags(importCmd.Flags())
 	importCmd.Flags().BoolVar(&importIncludeScopes, "include-scopes", false,
 		"Store the scope rules of a JSONL source in the active project (they change what later scans may reach); skipped by default")
+	importCmd.Flags().BoolVar(&importSkipFindings, "skip-findings", false,
+		"Merge a vigolium SQLite source without its findings, their history and their OAST interactions; refused for any other source")
 	importCmd.Flags().Bool("upload", false, "Upload the local import source to cloud storage after import")
 	importCmd.Flags().String("upload-key", "", "Explicit storage key for --upload (default: imports/<basename>-<ts>.<ext>)")
 	importCmd.Flags().BoolVar(&globalGlobStrict, "glob-strict", false,
@@ -155,6 +160,9 @@ func runImport(cmd *cobra.Command, args []string) error {
 	if bridgeURL != "" && upload {
 		return usageErrorf("--upload and --upload-key are not applicable to a live Burp bridge import")
 	}
+	if bridgeURL != "" && importSkipFindings {
+		return usageErrorf("--skip-findings applies only to a vigolium SQLite source; a bridge import carries no findings")
+	}
 
 	// Gather every import source: positional paths plus any local files matched
 	// by --glob-db. Positional args are gcs://→gs:// normalized and deduped
@@ -180,6 +188,17 @@ func runImport(cmd *cobra.Command, args []string) error {
 	// overwrite. Auto-generated per-source keys (empty --upload-key) are fine.
 	if uploadKey != "" && multi {
 		return usageErrorf("--upload-key cannot be used with multiple import sources (%d resolved); drop --upload-key to auto-generate a key per source", len(sources))
+	}
+
+	// --host and --skip-findings narrow a SQLite merge and nothing else; a
+	// source that would ignore them is refused before the database is opened.
+	if bridgeURL == "" {
+		if _, err := importPathHosts(); err != nil {
+			return err
+		}
+		if err := refuseSQLiteOnlyImportFlags(sources); err != nil {
+			return err
+		}
 	}
 
 	// Validate report flags up front so a typo fails before the import work,
@@ -631,10 +650,23 @@ func importOneSource(ctx context.Context, repo *database.Repository, src, projec
 		return nil, err
 	}
 	defer cleanup()
+	// A gs:// source is only inspectable once downloaded, so it is checked here;
+	// a local one was already checked up front and passes again.
+	if flags := importSQLiteOnlyFlags(); len(flags) > 0 {
+		if err := checkSQLiteOnlyImportSource(localPath, src, flags); err != nil {
+			return nil, err
+		}
+	}
+	hosts, err := importPathHosts()
+	if err != nil {
+		return nil, err
+	}
 	opts := dbimport.Options{
 		OriginalSource:     src,
 		SessionDirArchiver: cliSessionDirArchiver,
 		ImportScopes:       importIncludeScopes,
+		SkipFindings:       importSkipFindings,
+		Hosts:              hosts,
 	}
 	if importDryRun {
 		opts.SessionDirArchiver = nil // a dry run copies no session directory

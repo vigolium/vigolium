@@ -46,7 +46,10 @@ var (
 )
 
 func registerImportBridgeFilterFlags(flags *pflag.FlagSet) {
-	flags.StringVar(&importBridgeHost, "host", "", "Import only records for this host (supports * wildcards, e.g. '*.example.com')")
+	// --host is the one filter here that a path source honours too: a vigolium
+	// SQLite source is merged narrowed to the host (importPathHosts). It stays a
+	// single pattern because the bridge sends it to the listener as one string.
+	flags.StringVar(&importBridgeHost, "host", "", "Import only records for this host (supports * wildcards, e.g. '*.example.com'): applies to a bridge pull and to a vigolium SQLite source, where findings are narrowed to the host too; one pattern per import")
 	flags.StringVar(&importBridgePath, "path", "", "Import only records whose path matches this pattern")
 	flags.StringSliceVar(&importBridgeMethods, "method", nil, "Import only these HTTP methods (comma-separated)")
 	flags.IntSliceVar(&importBridgeStatus, "status", nil, "Import only these response status codes (comma-separated)")

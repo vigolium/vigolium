@@ -55,6 +55,28 @@ type MergeOptions struct {
 	// with many findings is buffered in full, per source, whether or not anything
 	// will read one.
 	SkipFindings bool
+
+	// Hosts, when non-empty, narrows the merge to rows about these hosts. Each
+	// entry takes the --host forms ParseHostFilter accepts — a hostname, a `*`
+	// glob ("*.example.com"), host:port or an origin — and matches
+	// case-insensitively; a row crosses when any entry matches it. An entry that
+	// names no host is an error. Empty means no filter: every row copies.
+	//
+	// The rule is that no row describing another host crosses:
+	//
+	//   - http_records: by hostname (and port/scheme when an entry names them).
+	//   - findings: by their hostname, falling back to their url's host when the
+	//     column is empty (port/scheme from the url). finding_records,
+	//     finding_observations, finding_status_events and finding_hash_aliases
+	//     follow the finding id map, so they copy only for copied findings.
+	//   - oast_interactions: only rows whose finding_id maps to a copied finding.
+	//     An unattributed interaction names no host the filter can check, so it
+	//     stays in the source rather than crossing with a nulled finding_id.
+	//   - oast_payloads and agentic_scans: by the host of their target_url. A row
+	//     with no parseable target_url names no host, so it stays.
+	//   - projects and scans: copied as without a filter. They are run metadata
+	//     every copied row points at, not traffic or findings about a host.
+	Hosts []string
 }
 
 // recordBodyColumns are the http_records blob columns holding the raw
@@ -202,6 +224,10 @@ func attachSpec(srcPath string) (string, error) {
 // transaction (so a retry starts clean) and detaches the source.
 func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions) (*MergeStats, error) {
 	stats := &MergeStats{}
+	hosts, err := parseMergeHosts(opts.Hosts)
+	if err != nil {
+		return nil, err
+	}
 
 	conn, err := dest.SQLDB().Conn(ctx)
 	if err != nil {
@@ -247,7 +273,7 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 		statusEventCols   []string
 	)
 	if !opts.SkipFindings {
-		srcFindings, findingCols, err = readRows(ctx, conn, "findings")
+		srcFindings, findingCols, err = readSourceFindings(ctx, conn, hosts)
 		if err != nil {
 			return nil, fmt.Errorf("read source findings: %w", err)
 		}
@@ -274,6 +300,21 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 			return nil, fmt.Errorf("read source finding_hash_aliases: %w", err)
 		}
 		stats.rekeyNeeded = len(srcFindings) > 0 && sourceSchemaVersion(ctx, conn) < identityV2Version
+	}
+
+	// Under a host filter, the tables that name their host only inside a URL
+	// are narrowed to the keys whose target_url matches, read here for the same
+	// reason as the buffers above.
+	var keptKeys map[string][]any
+	if hosts.active() {
+		keptKeys = make(map[string][]any, len(targetURLKeyedTables))
+		for table, keyCol := range targetURLKeyedTables {
+			keys, err := srcKeysByTargetHost(ctx, conn, table, keyCol, hosts)
+			if err != nil {
+				return nil, fmt.Errorf("read source %s: %w", table, err)
+			}
+			keptKeys[table] = keys
+		}
 	}
 
 	tx, err := conn.BeginTx(ctx, nil)
@@ -305,13 +346,19 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 		if len(cols) == 0 {
 			continue
 		}
-		colList := strings.Join(cols, ", ")
-		q := fmt.Sprintf("INSERT OR IGNORE INTO main.%s (%s) SELECT %s FROM src.%s", table, colList, colList, table)
-		res, err := tx.ExecContext(ctx, q)
+		var n int64
+		switch keyCol, keyed := targetURLKeyedTables[table]; {
+		case hosts.active() && table == "http_records":
+			pred, args := hosts.sqlPredicate("hostname", "port", "scheme")
+			n, err = copyTableWhere(ctx, tx, table, cols, pred, args)
+		case hosts.active() && keyed:
+			n, err = copyTableKeys(ctx, tx, table, cols, keyCol, keptKeys[table])
+		default:
+			n, err = copyTableWhere(ctx, tx, table, cols, "", nil)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("copy %s: %w", table, err)
 		}
-		n, _ := res.RowsAffected()
 		switch table {
 		case "projects":
 			stats.ProjectsMerged = int(n)
@@ -335,7 +382,7 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 		return nil, fmt.Errorf("merge finding_records: %w", err)
 	}
 
-	if err := mergeOAST(ctx, tx, srcOAST, oastCols, idMap, stats); err != nil {
+	if err := mergeOAST(ctx, tx, srcOAST, oastCols, idMap, hosts.active(), stats); err != nil {
 		return nil, fmt.Errorf("merge oast_interactions: %w", err)
 	}
 
@@ -364,6 +411,12 @@ type bufferedRow []any
 // readRows reads every row of src.<table> into memory and returns the rows
 // alongside the table's column names (in physical order).
 func readRows(ctx context.Context, conn *sql.Conn, table string) ([]bufferedRow, []string, error) {
+	return readRowsWhere(ctx, conn, table, "", nil)
+}
+
+// readRowsWhere is readRows narrowed by a SQL predicate over src.<table>'s
+// columns (none when where is empty), with args bound to its placeholders.
+func readRowsWhere(ctx context.Context, conn *sql.Conn, table, where string, args []any) ([]bufferedRow, []string, error) {
 	cols, err := tableColumns(ctx, conn, "src", table)
 	if err != nil {
 		return nil, nil, err
@@ -372,7 +425,10 @@ func readRows(ctx context.Context, conn *sql.Conn, table string) ([]bufferedRow,
 		return nil, nil, nil
 	}
 	q := fmt.Sprintf("SELECT %s FROM src.%s", strings.Join(cols, ", "), table)
-	rows, err := conn.QueryContext(ctx, q)
+	if where != "" {
+		q += " WHERE " + where
+	}
+	rows, err := conn.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -517,8 +573,9 @@ func mergeFindingRecords(ctx context.Context, tx *sql.Tx, rows []bufferedRow, id
 
 // mergeOAST copies OAST interactions, remapping the nullable finding_id FK. A
 // finding_id that does not map to a destination finding is nulled rather than
-// left dangling.
-func mergeOAST(ctx context.Context, tx *sql.Tx, rows []bufferedRow, cols []string, idMap map[int64]int64, stats *MergeStats) error {
+// left dangling — unless onlyMapped is set (a host-filtered merge), in which
+// case such a row, and one with no finding_id at all, is not copied.
+func mergeOAST(ctx context.Context, tx *sql.Tx, rows []bufferedRow, cols []string, idMap map[int64]int64, onlyMapped bool, stats *MergeStats) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -531,6 +588,18 @@ func mergeOAST(ctx context.Context, tx *sql.Tx, rows []bufferedRow, cols []strin
 		strings.Join(insertCols, ", "), placeholders)
 
 	for _, row := range rows {
+		if onlyMapped {
+			if findingIdx < 0 {
+				return nil
+			}
+			fid, ok := toInt64(row[findingIdx])
+			if !ok {
+				continue
+			}
+			if _, mapped := idMap[fid]; !mapped {
+				continue
+			}
+		}
 		args := make([]any, 0, len(insertCols))
 		for i, val := range row {
 			if i == idIdx {

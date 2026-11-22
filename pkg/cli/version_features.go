@@ -56,6 +56,13 @@ var versionFeatures = []versionFeature{
 	// A ViewState's legacy MAC is checked against published machineKeys,
 	// passively (aspnet-viewstate-detect) and on demand.
 	{Name: "viewstate-known-keys", Command: "kit viewstate-crack", Flag: "generator"},
+	// `import <vigolium.sqlite> --host <pattern>` merges only that host's
+	// records, findings and the rows that follow them; a non-SQLite path
+	// source with --host is refused rather than imported whole.
+	{Name: "import-sqlite-host", Command: "import", Flag: "host"},
+	// `import <vigolium.sqlite> --skip-findings` merges the source without its
+	// findings, their history and their OAST interactions.
+	{Name: "import-skip-findings", Command: "import", Flag: "skip-findings"},
 }
 
 // versionFeature is one entry of versionFeatures and the evidence that it

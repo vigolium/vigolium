@@ -1611,7 +1611,7 @@ Import scan data, databases, or live Burp Proxy history
 | `--from` | - | string | - | Import only records from this time onward (2d, 12h, today, YYYY-MM-DD, RFC3339) |
 | `--glob-db` | - | string | - | Glob of local files to import alongside any positional paths (use one format per run), e.g. --glob-db 'prefix-*.sqlite' or '*.jsonl' |
 | `--glob-strict` | - | bool | `false` | Stop at the first source that fails to import; by default a bad source is reported and the rest still import (exit 1 when any failed) |
-| `--host` | - | string | - | Import only records for this host (supports * wildcards, e.g. '*.example.com') |
+| `--host` | - | string | - | Import only records for this host (supports * wildcards, e.g. '*.example.com'): applies to a bridge pull and to a vigolium SQLite source, where findings are narrowed to the host too; one pattern per import |
 | `--include-scopes` | - | bool | `false` | Store the scope rules of a JSONL source in the active project (they change what later scans may reach); skipped by default |
 | `--limit` | `-n` | int | `0` | Import at most N records (0 = no limit) |
 | `--max-body-bytes` | - | int | `4096` | Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap |
@@ -1627,6 +1627,7 @@ Import scan data, databases, or live Burp Proxy history
 | `--report-url` | - | string | - | URL for the "Raw Report URL" button in HTML reports (overrides VIGOLIUM_REPORT_SHARED_URL) |
 | `--search` | - | string | - | Fuzzy search filter across finding fields included in the report; under --burp-bridge-url, narrows which records are imported |
 | `--severity` | - | string | - | Filter report findings by severity (comma-separated: critical,high,medium,low,info) |
+| `--skip-findings` | - | bool | `false` | Merge a vigolium SQLite source without its findings, their history and their OAST interactions; refused for any other source |
 | `--status` | - | intSlice | - | Import only these response status codes (comma-separated) |
 | `--to` | - | string | - | Import only records up to this time |
 | `--upload` | - | bool | `false` | Upload the local import source to cloud storage after import |
