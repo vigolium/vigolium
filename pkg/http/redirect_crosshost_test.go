@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -24,7 +25,10 @@ func newCrossHostRequester(t *testing.T, mode string, hopScope func(string) bool
 	if err := network.Init(opts); err != nil {
 		t.Fatalf("network.Init: %v", err)
 	}
-	svc := &services.Services{Options: opts, HopScope: hopScope}
+	svc := &services.Services{Options: opts}
+	if hopScope != nil {
+		svc.SendScope = predicateScope{admit: hopScope}
+	}
 	svc.Egress = egress.New(egress.Config{})
 	r, err := NewRequester(opts, svc)
 	if err != nil {
@@ -232,22 +236,19 @@ func TestRedirect_InScopeHopStripsSecretSignatureAuthHeaders(t *testing.T) {
 // A cross-host hop with no operator headers to keep does not consult the scope
 // a second time: outside the in-scope mode it is never read at all.
 func TestRedirect_CrossHostHopSkipsScopeWithoutOperatorHeaders(t *testing.T) {
-	var reads, calls int
-	scope := func() func(string) bool {
-		reads++
-		return func(string) bool { calls++; return true }
-	}
+	var calls int
+	scope := guardFor(predicateScope{admit: func(string) bool { return true }, hostCalls: &calls})
 	origin, _ := http.NewRequest(http.MethodGet, "http://a.example.com/start", nil)
 	hop, _ := http.NewRequest(http.MethodGet, "http://b.example.com/landing", nil)
 
 	if err := makeScopedRedirectFunc(RedirectModeAny, 10, scope, nil)(hop, []*http.Request{origin}); err != nil {
 		t.Fatalf("any-mode hop refused: %v", err)
 	}
-	if reads != 0 || calls != 0 {
-		t.Errorf("any mode without operator headers read the scope %d times, called it %d times; want 0/0", reads, calls)
+	if calls != 0 {
+		t.Errorf("any mode without operator headers called the host rule %d times, want 0", calls)
 	}
 
-	reads, calls = 0, 0
+	calls = 0
 	if err := makeScopedRedirectFunc(RedirectModeInScope, 10, scope, map[string]bool{"X-Bug-Bounty": true})(hop, []*http.Request{origin}); err != nil {
 		t.Fatalf("in-scope hop refused: %v", err)
 	}
@@ -255,11 +256,37 @@ func TestRedirect_CrossHostHopSkipsScopeWithoutOperatorHeaders(t *testing.T) {
 		t.Errorf("in-scope hop called the scope %d times, want 1 (the host rule only)", calls)
 	}
 
-	reads, calls = 0, 0
+	calls = 0
 	if err := makeScopedRedirectFunc(RedirectModeAny, 10, scope, map[string]bool{"X-Bug-Bounty": true})(hop, []*http.Request{origin}); err != nil {
 		t.Fatalf("any-mode hop refused: %v", err)
 	}
 	if calls != 1 {
 		t.Errorf("any-mode hop with operator headers called the scope %d times, want 1", calls)
 	}
+}
+
+// predicateScope is a services.SendScope whose host rule is admit and whose
+// destination rules admit everything; the counters, when set, count calls.
+type predicateScope struct {
+	admit     func(string) bool
+	hostCalls *int
+}
+
+func (p predicateScope) RejectHost(host string) (string, string) {
+	if p.hostCalls != nil {
+		*p.hostCalls++
+	}
+	if p.admit(host) {
+		return "", ""
+	}
+	return "scope.host.include", ""
+}
+
+func (p predicateScope) RejectAddress(string, int, string, []netip.Addr) (string, string) {
+	return "", ""
+}
+
+// guardFor is a send guard over scope that resolves no names.
+func guardFor(scope services.SendScope) *sendGuard {
+	return newSendGuard(&services.Services{SendScope: scope}, nil)
 }

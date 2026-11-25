@@ -204,6 +204,41 @@ func ValidateScope(s ScopeConfig) []Issue {
 		}
 	}
 
+	// scope.cidr entries are prefixes or addresses; scope.port entries are
+	// ports or ranges. The matcher skips an entry that does not parse.
+	for _, nr := range []struct {
+		name  string
+		rule  ScopeRule
+		valid func(string) bool
+		want  string
+	}{
+		{"cidr", s.CIDR, func(p string) bool { _, ok := ParseScopePrefix(p); return ok }, "an IP address or CIDR prefix (10.0.0.0/8)"},
+		{"port", s.Port, func(p string) bool {
+			if strings.TrimSpace(p) == "*" {
+				return true
+			}
+			_, _, ok := ParseScopePortRange(p)
+			return ok
+		}, "a port (443) or inclusive range (8000-8100) within 1-65535"},
+	} {
+		for _, side := range []string{"include", "exclude"} {
+			patterns := nr.rule.Include
+			if side == "exclude" {
+				patterns = nr.rule.Exclude
+			}
+			key := "scope." + nr.name + "." + side
+			for i, p := range patterns {
+				if !nr.valid(p) {
+					issues = append(issues, Issue{
+						Key: key, Severity: SeverityError, Code: IssueScopePatternInvalid,
+						Message: fmt.Sprintf("%s[%d] = %q: not %s", key, i, p, nr.want),
+						Fix:     setListFix(key, keepPatterns(patterns, nr.valid)),
+					})
+				}
+			}
+		}
+	}
+
 	// An exclude of "*" refuses every record for that rule: a scan with it
 	// sends its requests and then drops every result.
 	for _, r := range ScopeRuleClasses(s) {

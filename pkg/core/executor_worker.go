@@ -125,6 +125,17 @@ func (e *Executor) drainFeedbackOverflow(ctx context.Context, itemCh chan<- *wor
 // sendItem applies scope/static filters and sends the item to itemCh.
 // Returns false if context is cancelled.
 func (e *Executor) sendItem(ctx context.Context, item *work.WorkItem, itemCh chan<- *work.WorkItem) bool {
+	// A stored request-only stub with a state-changing method is a template:
+	// fetching its baseline (and backfilling the response, saveToDatabase)
+	// would perform the write it only describes. Refused before the send
+	// unless the run allows writes.
+	if e.refusesWriteTemplate(item) {
+		e.writeTemplatesSkipped.Add(1)
+		e.noteUnanswered(item, SkipWriteTemplate, nil)
+		item.Complete()
+		return true
+	}
+
 	// Always filter static files before HTTP fetch — EXCEPT object-storage
 	// assets, which are kept and recorded metadata-only (HEAD, body stripped)
 	// so the CDN traversal modules can probe storage-fronted static URLs.
@@ -480,4 +491,15 @@ func (e *Executor) processItemDetached(t *itemTracker) {
 	if !skipActive {
 		e.runActiveStage(ctx, t, req, &filter, &elig)
 	}
+}
+
+// refusesWriteTemplate reports whether item is a store stub (it came from a
+// stored record and carries no response) whose method is not
+// GET/HEAD/OPTIONS, on an executor that does not allow writes.
+func (e *Executor) refusesWriteTemplate(item *work.WorkItem) bool {
+	if e.cfg.AllowWrites || item == nil || item.RecordUUID == "" || item.Request == nil ||
+		item.Request.Response() != nil || item.Request.Request() == nil {
+		return false
+	}
+	return !httpmsg.IsSafeMethod(item.Request.Request().Method())
 }

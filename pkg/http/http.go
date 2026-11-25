@@ -34,6 +34,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/proxytarget"
+	"github.com/vigolium/vigolium/pkg/requesttransform"
 	"github.com/vigolium/vigolium/pkg/types"
 	"go.uber.org/zap"
 	"golang.org/x/net/publicsuffix"
@@ -138,8 +139,11 @@ type Requester struct {
 	rawClient *rawhttp.Client
 	// rawClients picks the raw client per request: direct, or one per
 	// proxy, since rawhttp dials through the proxy its client was built with.
-	rawClients    *rawClientSet
-	services      *services.Services
+	rawClients *rawClientSet
+	services   *services.Services
+	// guard is the send-time scope check (send_guard.go), shared by every
+	// clone; a no-op while Services.SendScope is nil.
+	guard         *sendGuard
 	customHeaders map[string]string
 	clusterer     *RequestClusterer
 	// clusterScope partitions the shared response cache by credential identity.
@@ -303,7 +307,22 @@ type BlockNotice struct {
 	Host    string // host the block was observed on
 	WAFType string // detected WAF/CDN vendor (e.g. "cloudflare", "akamai", "generic")
 	Status  int    // HTTP status code of the blocking response
+	// Kind is waf.KindVendor, waf.KindRefused (the generic rule alone: no
+	// vendor named) or waf.KindChallenge (a vendor challenge on a 2xx).
+	Kind string
+	// Transport is the sender that saw it: BlockTransportRequester,
+	// BlockTransportDiscovery or BlockTransportSpider.
+	Transport string
 }
+
+// Block transports (BlockNotice.Transport): which of the scan's senders
+// classified the block. Every one reports through the same notifier, so a host
+// is announced once whichever sender meets the block first.
+const (
+	BlockTransportRequester = "requester"
+	BlockTransportDiscovery = "discovery"
+	BlockTransportSpider    = "spider"
+)
 
 // blockNotifier detects WAF/CDN block responses on the requester's traffic and
 // invokes sink exactly once per host. A single warning per host is enough: it
@@ -325,7 +344,7 @@ type blockNotifier struct {
 // not suppress a later genuine WAF block on the same host. Callers that already
 // classified the response (the hot path shares one result with the limiter feedback)
 // call this directly.
-func (n *blockNotifier) reportBlock(host string, block *waf.BlockResult, status int) {
+func (n *blockNotifier) reportBlock(host string, block *waf.BlockResult, status int, transport string) {
 	if n == nil || host == "" || block == nil {
 		return
 	}
@@ -350,9 +369,11 @@ func (n *blockNotifier) reportBlock(host string, block *waf.BlockResult, status 
 	n.mu.Unlock()
 
 	n.sink(BlockNotice{
-		Host:    host,
-		WAFType: block.WAFType,
-		Status:  status,
+		Host:      host,
+		WAFType:   block.WAFType,
+		Status:    status,
+		Kind:      block.Kind(),
+		Transport: transport,
 	})
 }
 
@@ -502,6 +523,18 @@ func (r *Requester) BlockCounts() map[string]int64 {
 		return true
 	})
 	return out
+}
+
+// ReportBlock records a block another of the scan's senders classified — the
+// discovery transport, the browser crawl — on this requester's notifier: it
+// counts toward BlockCounts (so the phase reads edge_blocked) and fires the
+// once-per-host sink exactly as a block on the requester's own traffic does.
+// nil block is a no-op.
+func (r *Requester) ReportBlock(host string, block *waf.BlockResult, status int, transport string) {
+	if r == nil || r.blockNotifier == nil {
+		return
+	}
+	r.blockNotifier.reportBlock(host, block, status, transport)
 }
 
 // SetBlockNotifier installs a sink invoked once per host the first time a
@@ -929,13 +962,21 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 	// the attempt counter, both needed by the redirect policy below.
 	gate := services.EgressGate()
 	sent := &atomic.Int64{}
+	// The send-time scope check, judged on every request and every hop.
+	guard := newSendGuard(services, dnsResolver(func(host string) (a, aaaa []string, err error) {
+		data, err := dialer.GetDNSData(host)
+		if err != nil || data == nil {
+			return nil, nil, err
+		}
+		return data.A, data.AAAA, nil
+	}))
 
 	// Client with redirects
 	client := newScanRetryClient(&http.Client{
 		Transport:     sharedTransport,
 		Timeout:       timeout,
 		Jar:           jar,
-		CheckRedirect: gateRedirects(makeScopedRedirectFunc(redirectMode, maxRedir, services.HopScopeFunc, operatorHopHeaders(options.Headers)), gate, sent),
+		CheckRedirect: gateRedirects(makeScopedRedirectFunc(redirectMode, maxRedir, guard, operatorHopHeaders(options.Headers)), gate, sent),
 	}, retryOpts)
 
 	// Client without redirects
@@ -973,6 +1014,7 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 		rawClient:     rawClient,
 		rawClients:    rawClients,
 		services:      services,
+		guard:         guard,
 		customHeaders: parseHeaders(options.Headers),
 		carried:       &carriedSessionStore{},
 		blockNotifier: &blockNotifier{seen: make(map[string]struct{})},
@@ -1304,6 +1346,19 @@ func (r *Requester) executeContext(ctx context.Context, input *httpmsg.HttpReque
 			return nil, 0, ErrHostOutOfScope
 		}
 	}
+	// Send-time scope: host, port, explicit path exclusions, address rules.
+	// Before the clusterer, so a refused request neither sends nor joins a
+	// group that does.
+	if svc := input.Service(); svc != nil && svc.Host() != "" {
+		path := ""
+		if req := input.Request(); req != nil {
+			path = req.Path()
+		}
+		if err := r.guard.check(svc.Host(), svc.Port(), path, true); err != nil {
+			r.noteStat(func(c *CallStats) { c.Refused.Add(1) })
+			return nil, 0, err
+		}
+	}
 	// Traffic policy chokepoint. The priority lane (login, re-login,
 	// reachability preflight) is exempt: it is the operator's own session
 	// setup, not scan traffic.
@@ -1502,7 +1557,7 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		// Classify a WAF/CDN block once (cheap status pre-gate; only reads the body on a
 		// block-status response) and feed that single result to both consumers: the
 		// adaptive limiter (arms/backs-off WAF-auto-arm throttling) and the once-per-host
-		// operator warning. Sharing the result avoids re-running ClassifyParts per block.
+		// operator warning. Sharing the result avoids re-running ClassifyResponse per block.
 		status := responseChainStatus(resp)
 		block := classifyWAFBlock(resp)
 		retryAfter := responseRetryAfter(resp)
@@ -1525,7 +1580,7 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		if throttled {
 			r.noteStat(func(c *CallStats) { c.Throttled.Add(1) })
 		}
-		r.blockNotifier.reportBlock(host, block, status)
+		r.blockNotifier.reportBlock(host, block, status, BlockTransportRequester)
 		// Proactively pace a host the first time it is seen behind a CDN/WAF edge, so a
 		// later phase's burst never arms a rate-based WAF. Runs on every phase's traffic
 		// through this shared requester (heuristics/discovery hit each host before the
@@ -1684,11 +1739,7 @@ func safeToRetry(ctx context.Context, err error, wrote bool, method string, retr
 	if ClassifyTransportError(err) == TransportErrTimeout {
 		return retryTimeouts
 	}
-	switch strings.ToUpper(method) {
-	case http.MethodGet, http.MethodHead, http.MethodOptions:
-		return true
-	}
-	return false
+	return httpmsg.IsSafeMethod(method)
 }
 
 // scanRetryOptions are the retryablehttp options every scan client uses. Its
@@ -1794,9 +1845,9 @@ func (r *Requester) AcquireDial(host string, port int) (func(), error) {
 }
 
 // classifyWAFBlock returns the WAF/CDN block classification for resp, or nil if it is
-// not a block. It short-circuits on a cheap status pre-gate (waf.IsBlockStatusCode)
-// so the common 2xx/3xx hot path never reads the body or runs the classifier; only a
-// block-status response pays the ClassifyParts cost. Uses the same accessors as the
+// not a block. It short-circuits on a cheap status pre-gate (waf.IsCandidateStatusCode)
+// so most of the hot path never reads the body or runs the classifier; only a
+// candidate-status response pays the ClassifyResponse cost. Uses the same accessors as the
 // notifier (never FullResponse). This is the single classification both the limiter
 // feedback and the operator warning share.
 func classifyWAFBlock(resp *httpUtils.ResponseChain) *waf.BlockResult {
@@ -1804,14 +1855,14 @@ func classifyWAFBlock(resp *httpUtils.ResponseChain) *waf.BlockResult {
 		return nil
 	}
 	httpResp := resp.Response()
-	if httpResp == nil || !waf.IsBlockStatusCode(httpResp.StatusCode) {
+	if httpResp == nil || !waf.IsCandidateStatusCode(httpResp.StatusCode) {
 		return nil
 	}
 	var body []byte
 	if b := resp.Body(); b != nil {
 		body = b.Bytes()
 	}
-	return waf.ClassifyParts(httpResp.StatusCode, httpResp.Header, body)
+	return waf.ClassifyResponse(httpResp.StatusCode, httpResp.Header, body)
 }
 
 // reportHostFeedback forwards a per-request outcome to the adaptive host
@@ -1948,6 +1999,13 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 		}
 	}
 	preserved.restore(req.Header)
+	// The declared request transform signs the FINAL bytes, after every header
+	// above is merged. Framing attacks send exact bytes and are left alone.
+	if len(opts.RawBytes) == 0 {
+		if err := applyRequestTransform(requesttransform.Active(), req); err != nil {
+			return nil, &requestBuildError{err: err}
+		}
+	}
 
 	if r.services.Options.Debug {
 		zap.L().Debug("HTTP Request", zap.String("url", req.String()))

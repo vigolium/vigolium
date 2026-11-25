@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/agent/prompt"
 	"github.com/vigolium/vigolium/pkg/spitolas"
 	"github.com/vigolium/vigolium/pkg/utils"
@@ -53,8 +54,8 @@ func loadClaudeCodeSystemPromptBase() (string, string) {
 }
 
 func loadPromptFile(basename, embedPath, fallback string) (string, string) {
-	if home, err := os.UserHomeDir(); err == nil {
-		path := filepath.Join(home, ".vigolium", "prompts", basename)
+	if userDir := paths.VigoliumPath("prompts"); userDir != "" {
+		path := filepath.Join(userDir, basename)
 		if data, err := os.ReadFile(path); err == nil {
 			zap.L().Debug("loaded olium autopilot system prompt from user file", zap.String("path", path))
 			return string(data), path

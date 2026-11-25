@@ -16,6 +16,8 @@ const (
 	SourceProject = "project"
 	SourceProfile = "profile"
 	SourceFlag    = "flag"
+	// SourceSet is a value the invocation's --set overlay supplied.
+	SourceSet = "set"
 	// SourceEnvPrefix prefixes the variable that supplied a value: "env:NAME".
 	SourceEnvPrefix = "env:"
 )
@@ -36,11 +38,12 @@ type TraceOptions struct {
 // TraceSources reports, for every key a layer set, the layer that decided its
 // effective value: the config file (or env:NAME when the file's value is a
 // ${NAME} placeholder the environment filled), the project overlay, a
-// scanning profile, a variable the binary reads directly (EnvRegistry
-// overrides), or a flag. Keys absent from the map come from the defaults.
+// scanning profile, the invocation's --set overlay, a variable the binary
+// reads directly (EnvRegistry overrides), or a flag. Keys absent from the map
+// come from the defaults.
 //
 // Later layers win, matching the load order: file → project → profile →
-// environment override → flag.
+// --set → environment override → flag.
 func TraceSources(opts TraceOptions) (map[string]string, error) {
 	sources := map[string]string{}
 	path := ExpandPath(opts.ConfigPath)
@@ -64,6 +67,9 @@ func TraceSources(opts TraceOptions) (map[string]string, error) {
 		if err := traceYAMLFile(ExpandPath(opts.ProfilePath), SourceProfile, sources); err != nil {
 			return nil, err
 		}
+	}
+	for _, e := range ProcessOverlay() {
+		sources[SettingPath(e.Key)] = SourceSet
 	}
 	for _, v := range EnvRegistry {
 		if v.OverridesKey == "" {

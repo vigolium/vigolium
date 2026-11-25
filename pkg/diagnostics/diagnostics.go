@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/audit/bin"
 	"github.com/vigolium/vigolium/pkg/browserprobe"
 	"github.com/vigolium/vigolium/pkg/cftbrowser"
@@ -339,6 +340,9 @@ var (
 // it headless to prove it runs (probeChromium). A missing one carries a
 // package-manager install hint.
 func checkChromium(launch bool) *ToolCheck {
+	if !cftSupported() {
+		return checkSystemChromium(launch)
+	}
 	chromiumFallbacks := []string{"chromium-browser", "google-chrome", "google-chrome-stable"}
 	if runtime.GOOS == "darwin" {
 		chromiumFallbacks = append(chromiumFallbacks,
@@ -370,6 +374,36 @@ func checkChromium(launch bool) *ToolCheck {
 	// more specific tip (see probeChromium), so don't clobber it.
 	if t.Status != StatusOK && t.Tip == "" {
 		t.Tip = chromiumInstallHint()
+	}
+	return t
+}
+
+// cftSupported and systemChromium are cftbrowser's platform answers,
+// replaceable in tests so the no-CfT-build branch runs on any host.
+var (
+	cftSupported   = cftbrowser.IsSupported
+	systemChromium = cftbrowser.SystemChromium
+)
+
+// checkSystemChromium is the chromium check on a platform Chrome for Testing
+// publishes no build for (linux/arm64): the scan uses the system browser
+// cftbrowser.SystemChromium resolves, so the check names that binary and the
+// lookup order it came from.
+func checkSystemChromium(launch bool) *ToolCheck {
+	details := []string{fmt.Sprintf("no Chrome for Testing build for %s; looking up %s in that order",
+		cftbrowser.Platform(), strings.Join(cftbrowser.SystemChromiumNames, ", "))}
+	path, name, err := systemChromium()
+	if err != nil {
+		return &ToolCheck{Status: StatusWarning, Message: err.Error(), Details: details, Tip: chromiumInstallHint()}
+	}
+	t := &ToolCheck{
+		Status:  StatusOK,
+		Path:    path,
+		Message: fmt.Sprintf("system %s (no Chrome for Testing build for %s)", name, cftbrowser.Platform()),
+		Details: append(details, fmt.Sprintf("resolved %q: %s", name, path)),
+	}
+	if launch {
+		t = probeChromium(t)
 	}
 	return t
 }
@@ -415,7 +449,7 @@ func checkDatabase(db *database.DB, dbErr error) *CheckResult {
 				Status:  StatusError,
 				Message: "schema_outdated",
 				Details: []string{dbErr.Error()},
-				Tip:     "Run `vigolium db migrate`, or set database.auto_migrate_on_read: true.",
+				Tip:     schemaOutdatedTip(dbErr),
 			}
 		}
 		if dbErr != nil {
@@ -526,14 +560,13 @@ func checkDatabase(db *database.DB, dbErr error) *CheckResult {
 // not that anything is broken — so the result is StatusWarning at worst and
 // never affects overall readiness.
 func checkInitMarker() *CheckResult {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	markerPath := paths.VigoliumPath("initialized")
+	if markerPath == "" {
 		return &CheckResult{
 			Status:  StatusWarning,
-			Message: fmt.Sprintf("cannot resolve home directory: %v", err),
+			Message: "cannot resolve the state directory: no home directory and no " + paths.StateDirEnv,
 		}
 	}
-	markerPath := filepath.Join(home, ".vigolium", "initialized")
 	details := []string{fmt.Sprintf("checking marker: %s", markerPath)}
 
 	data, err := os.ReadFile(markerPath)
@@ -1406,4 +1439,14 @@ func computeOverallStatus(r *Report, databaseRan bool) Status {
 	}
 
 	return "ready"
+}
+
+// schemaOutdatedTip names the migrate command for the store the error is about.
+func schemaOutdatedTip(err error) string {
+	cmd := "vigolium db migrate"
+	var outdated *database.SchemaOutdatedError
+	if errors.As(err, &outdated) {
+		cmd = outdated.MigrateCommand()
+	}
+	return "Run `" + cmd + "`, or set VIGOLIUM_AUTO_MIGRATE=1 to let opens migrate."
 }

@@ -87,8 +87,8 @@ stores). What to read in it:
   `config`, `factor`, `default`, `floor`), the `pace` fields the phase enforces,
   and `request_cap_enforcement` when `--max-requests` is set.
 - `targets {seeded, admitted, rejected, rejected_sample, db_records_in_scope}`:
-  scope admission, with the same rule a real scan applies — every seeded target
-  refused exits `1` with `error.code: no_targets_in_scope`.
+  scope admission. A seeded target the scope refuses stops the dry run before
+  the plan, as it stops the scan: exit `2`, `error.code: out_of_scope`.
 - `modules {active, passive, extensions, tier_ceiling, tier_filtered,
   hygiene_suppressed, risk_gated, payloads_gated[], by_scope}`: what runs and
   what the intensity holds back.

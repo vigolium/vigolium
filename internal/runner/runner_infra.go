@@ -129,11 +129,11 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 	infra.svc = svc
 
 	// Create scope matcher from settings, passing CLI targets for cli_origin_mode
-	// filtering. Built before the requester so the in-scope redirect mode (the
-	// default) can judge every hop against it from the first request.
+	// filtering. Built before the requester so its send-time check (every
+	// request, every redirect hop) judges against it from the first request.
 	if r.settings != nil {
 		infra.scopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.scopeTargets()...)
-		svc.HopScope = infra.scopeMatcher.HostInScope
+		svc.SendScope = infra.scopeMatcher
 		// The traffic policy is resolved once, here, before any sender exists;
 		// every sender reads it from the shared options.
 		if r.options.TrafficPolicy == nil {

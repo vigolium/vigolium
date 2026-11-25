@@ -239,10 +239,9 @@ func openForEvidence(cfg *config.DatabaseConfig) (*database.DB, error) {
 // writing the same store.
 //
 // Its schema is checked with catalog reads only. A store that is behind is
-// migrated through a SEPARATE, short-lived writer when
-// database.auto_migrate_on_read is on (the default for one release, D23), and
-// refused with schema_outdated and the `vigolium db migrate` remedy when it is
-// off. A missing or table-less default store is initialized the same way: that
+// refused with schema_outdated and the `vigolium db migrate --db <path>`
+// remedy, unless database.auto_migrate_on_read or VIGOLIUM_AUTO_MIGRATE lets
+// it migrate through a SEPARATE, short-lived writer. A missing or table-less default store is initialized the same way: that
 // is creating an empty store, not migrating anyone's data. A pinned source that
 // is missing or foreign never gets here (checkSourceExists / refuseForeignStore).
 func openForRead(cfg *config.DatabaseConfig) (*database.DB, error) {
@@ -280,7 +279,7 @@ func openForRead(cfg *config.DatabaseConfig) (*database.DB, error) {
 
 	schemaErr := db.CheckSchema(context.Background())
 	migrate := errors.Is(schemaErr, database.ErrSchemaNotInitialized) ||
-		(errors.Is(schemaErr, database.ErrSchemaOutdated) && cfg.AutoMigrateOnRead)
+		(errors.Is(schemaErr, database.ErrSchemaOutdated) && cfg.MigratesImplicitly())
 	if !migrate {
 		if schemaErr != nil {
 			_ = db.Close()

@@ -502,7 +502,13 @@ func fixClaude(ctx context.Context, _ *config.Settings) error {
 
 func fixChromium(ctx context.Context, _ *config.Settings) error {
 	if !cftbrowser.IsSupported() {
-		return fmt.Errorf("chrome for Testing not available for %s/%s — install Chromium manually", runtime.GOOS, runtime.GOARCH)
+		// No CfT build to download: EnsureBrowser resolves the system browser.
+		binPath, err := cftbrowser.EnsureBrowser(ctx, nil)
+		if err != nil {
+			return err
+		}
+		fixf("    Using system Chromium (no Chrome for Testing build for %s): %s\n", cftbrowser.Platform(), binPath)
+		return nil
 	}
 	binPath, err := cftbrowser.EnsureBrowser(ctx, nil)
 	if err != nil {

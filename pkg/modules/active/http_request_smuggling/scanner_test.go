@@ -288,8 +288,8 @@ func TestLooksLikeEdgeBlockPage(t *testing.T) {
 	})
 
 	t.Run("markers the shared detector owns are not duplicated here", func(t *testing.T) {
-		// These live in infra.ChallengeBodyMarkers, which isEdgeOrGateResponse
-		// consults first. Repeating them locally is how marker sets drift apart;
+		// These live in the shared signature table (waf.Signatures), which
+		// isEdgeOrGateResponse consults first through infra's detector. Repeating them locally is how marker sets drift apart;
 		// TestIsEdgeOrGateResponse proves the coverage is still there.
 		for _, b := range []string{
 			`Request unsuccessful. Incapsula incident ID: 123`,

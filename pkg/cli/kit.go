@@ -28,6 +28,7 @@ transform or probe meant to be driven by an orchestrator or run by hand.
   vigolium kit oast new|poll                 mint OOB callback URLs and drain hits
   vigolium kit harvest <domain...>           collect known URLs from public archives
   vigolium kit param-mine -t <url>           discover hidden parameters an endpoint accepts
+  vigolium kit h2-probe -t <url>             send one hand-framed HTTP/2 request and time the answer
   vigolium kit jwt-crack <token>             recover a JWT's HMAC secret from a wordlist
   vigolium kit viewstate-crack <viewstate>   check a ViewState MAC against published machineKeys
   vigolium kit unlock-walk --profile <file>   walk SPA routes on forged client state

@@ -26,13 +26,43 @@ var schemaStorageCmd = &cobra.Command{
 		"SQL is the only way.",
 	Example: "  vigolium schema storage\n" +
 		"  vigolium schema storage http_records -j\n" +
-		"  vigolium schema storage --db scan.sqlite host_observations",
+		"  vigolium schema storage --db scan.sqlite host_observations\n" +
+		"  vigolium schema storage --ddl > vigolium-schema.sql",
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSchemaStorage,
 }
 
+// schemaStorageDDL backs --ddl.
+var schemaStorageDDL bool
+
 func init() {
 	schemaCmd.AddCommand(schemaStorageCmd)
+	schemaStorageCmd.Flags().BoolVar(&schemaStorageDDL, "ddl", false,
+		"Print the SQLite DDL that creates an empty store at this binary's schema version, one ;-terminated statement per line (-j: {schema_version, statements}); opens no database")
+}
+
+// schemaDDLView is the `schema storage --ddl -j` item: the schema version the
+// statements build and the statements, in order.
+type schemaDDLView struct {
+	SchemaVersion int      `json:"schema_version"`
+	Statements    []string `json:"statements"`
+}
+
+// runSchemaStorageDDL prints database.FreshSchemaDDL. It never opens a store:
+// the DDL is this binary's, not any file's.
+func runSchemaStorageDDL(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 {
+		return usageErrorf("--ddl prints the whole schema; it takes no table name")
+	}
+	view := schemaDDLView{SchemaVersion: database.CurrentSchemaVersion(), Statements: database.FreshSchemaDDL()}
+	if globalJSON {
+		return emitRead(cmd, "", []schemaDDLView{view}, 1, 0, 1)
+	}
+	fmt.Printf("-- vigolium store schema version %d\n", view.SchemaVersion)
+	for _, s := range view.Statements {
+		fmt.Println(s + ";")
+	}
+	return nil
 }
 
 // storageTablePurpose says what each table holds, for the tables a reader is
@@ -41,6 +71,7 @@ var storageTablePurpose = map[string]string{
 	"http_records":          "Stored HTTP exchanges: one row per request/response, project-scoped (read with `vigolium traffic`)",
 	"findings":              "Findings: one row per distinct issue, deduplicated by finding_hash (read with `vigolium finding`)",
 	"finding_records":       "Which http_records evidence each finding",
+	"record_tags":           "Caller labels on records, one value per key: written by `import --tag`, read by `traffic --tag`, deleted by `db clean --tag`",
 	"finding_observations":  "Each scan that observed a finding (first/last seen history)",
 	"finding_status_events": "Verdict history written by `vigolium finding mark`",
 	"finding_hash_aliases":  "Old finding hashes (pre-identity-v2, or merged duplicates) and the finding that absorbed each",
@@ -82,6 +113,9 @@ type storageTable struct {
 }
 
 func runSchemaStorage(cmd *cobra.Command, args []string) error {
+	if schemaStorageDDL {
+		return runSchemaStorageDDL(cmd, args)
+	}
 	defer closeDatabaseOnExit()
 	db, err := openReadDB(globDBSkipSet{})
 	if err != nil {

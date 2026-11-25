@@ -98,11 +98,12 @@ func TestSanitizeSessionID(t *testing.T) {
 	}
 }
 
-func TestPathForRespectsHome(t *testing.T) {
-	t.Setenv("VIGOLIUM_HOME", t.TempDir())
+func TestPathForRespectsStateDir(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("VIGOLIUM_STATE_DIR", state)
 	p := PathFor("foo")
-	if p == "" {
-		t.Fatal("expected non-empty path")
+	if p != filepath.Join(state, "replay-jars", "foo.json") {
+		t.Fatalf("PathFor under VIGOLIUM_STATE_DIR = %q, want %q", p, filepath.Join(state, "replay-jars", "foo.json"))
 	}
 	if filepath.Base(p) != "foo.json" {
 		t.Errorf("PathFor: want basename foo.json, got %s", filepath.Base(p))

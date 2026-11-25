@@ -475,6 +475,16 @@ type BlockClassifier interface {
 	IsBlock(status int, header http.Header, body []byte) bool
 }
 
+// HostBlockClassifier is a BlockClassifier that is also told which host the
+// response came from. When the classifier implements it, the round tripper
+// calls IsHostBlock in place of IsBlock — on every response, host limiter or
+// not — so the classifier can record the block it finds (the scan's
+// once-per-host block notice) without the response being classified twice.
+type HostBlockClassifier interface {
+	BlockClassifier
+	IsHostBlock(host string, status int, header http.Header, body []byte) bool
+}
+
 // blockPeekBytes bounds how much of a block-candidate response body is read
 // ahead for classification. Block pages are small; the rest still streams.
 const blockPeekBytes = 64 << 10
@@ -527,7 +537,8 @@ func (g *Gate) hostLimiter() *ratelimit.HostRateLimiter {
 // own expired), so it is not reported.
 func (t *roundTripper) report(req *http.Request, resp *http.Response, err error) {
 	hosts := t.g.hostLimiter()
-	if hosts == nil || requestCancelled(req) {
+	_, observes := t.blocks.(HostBlockClassifier)
+	if (hosts == nil && !observes) || requestCancelled(req) {
 		return
 	}
 	// The limiter's key is the bare hostname (what Acquire's parseTarget
@@ -537,13 +548,18 @@ func (t *roundTripper) report(req *http.Request, resp *http.Response, err error)
 		return
 	}
 	if err != nil {
-		hosts.Feedback(host, ratelimit.FeedbackOutcome{Err: err})
+		if hosts != nil {
+			hosts.Feedback(host, ratelimit.FeedbackOutcome{Err: err})
+		}
 		return
 	}
 	if resp == nil {
 		return
 	}
-	hosts.Feedback(host, ratelimit.FeedbackOutcome{Status: resp.StatusCode, WAFBlocked: t.isBlock(resp)})
+	blocked := t.isBlock(host, resp)
+	if hosts != nil {
+		hosts.Feedback(host, ratelimit.FeedbackOutcome{Status: resp.StatusCode, WAFBlocked: blocked})
+	}
 }
 
 // requestCancelled reports whether the CALLER gave up on req. A
@@ -561,7 +577,7 @@ func requestCancelled(req *http.Request) bool {
 
 // isBlock classifies a block-candidate response, reading ahead at most
 // blockPeekBytes and splicing them back so the caller sees the whole body.
-func (t *roundTripper) isBlock(resp *http.Response) bool {
+func (t *roundTripper) isBlock(host string, resp *http.Response) bool {
 	if t.blocks == nil || !t.blocks.IsBlockStatus(resp.StatusCode) {
 		return false
 	}
@@ -576,6 +592,9 @@ func (t *roundTripper) isBlock(resp *http.Response) bool {
 		peek := buf.Bytes()
 		body = peek
 		resp.Body = &peekedBody{Reader: io.MultiReader(bytes.NewReader(peek), resp.Body), Closer: resp.Body}
+	}
+	if hb, ok := t.blocks.(HostBlockClassifier); ok {
+		return hb.IsHostBlock(host, resp.StatusCode, resp.Header, body)
 	}
 	return t.blocks.IsBlock(resp.StatusCode, resp.Header, body)
 }

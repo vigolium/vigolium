@@ -144,3 +144,50 @@ func TestFeedbackRoundTripperIgnoresCancelled(t *testing.T) {
 		t.Errorf("limit after a client timeout = %d, want backed off (distress)", limit)
 	}
 }
+
+// hostBlocks records the host of every block it classifies.
+type hostBlocks struct {
+	stubBlocks
+	seen *[]string
+}
+
+func (h hostBlocks) IsHostBlock(host string, status int, header http.Header, body []byte) bool {
+	if !h.IsBlock(status, header, body) {
+		return false
+	}
+	*h.seen = append(*h.seen, host)
+	return true
+}
+
+// A HostBlockClassifier is told the host of each block, even on a gate with no
+// host limiter, and the caller still reads the whole body.
+func TestFeedbackRoundTripperTellsHostClassifier(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/blocked" {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, "request blocked by edge")
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, "application says no")
+	}))
+	defer srv.Close()
+
+	var seen []string
+	g := New(Config{})
+	client := &http.Client{Transport: g.FeedbackRoundTripper(nil, LaneNormal, hostBlocks{stubBlocks{marker: "request blocked"}, &seen})}
+	for _, path := range []string{"/blocked", "/app"} {
+		resp, err := client.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if len(body) == 0 {
+			t.Fatalf("%s: body consumed by classification", path)
+		}
+	}
+	if len(seen) != 1 || seen[0] != hostOf(t, srv.URL) {
+		t.Fatalf("blocks seen = %v, want one on %s", seen, hostOf(t, srv.URL))
+	}
+}

@@ -71,7 +71,7 @@ func TestEmittedEventsMatchSchema(t *testing.T) {
 	e.Emit(Event{Type: TypePhaseProgress, Phase: "dynamic-assessment", RequestsSent: Int64(0), Findings: Int64(0),
 		Done: Int64(3), Total: Int64(10), Unit: "records"})
 	e.Emit(Event{Type: TypeFindingNew, Severity: "high", Confidence: "firm", ModuleID: "xss", URL: "https://app.test/?q=1", Host: "app.test"})
-	e.Emit(Event{Type: TypeWAFBlock, Host: "app.test", Vendor: "unknown", StatusCode: 403, Detail: "edge"})
+	e.Emit(Event{Type: TypeWAFBlock, Host: "app.test", Vendor: "cloudflare", BlockKind: "challenge", Transport: "spider", StatusCode: 200, Detail: "edge"})
 	e.Emit(Event{Type: TypeHostQuarantined, Host: "app.test:443", Phase: "dynamic-assessment", Detail: "timeout"})
 	e.Emit(Event{Type: TypeAuthRelogin, Session: "admin", Gen: 2, OK: &yes, Count: Int64(1)})
 	e.Emit(Event{Type: TypeError, Phase: "spidering", Message: "boom", ErrorKind: "wait_timeout"})

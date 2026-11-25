@@ -28,15 +28,23 @@ type StorageConfig struct {
 // IsEnabled returns whether cloud storage is enabled. The VIGOLIUM_STORAGE_ENABLED
 // environment variable takes precedence over the YAML config when set. Defaults to false.
 func (c *StorageConfig) IsEnabled() bool {
-	if v := os.Getenv(StorageEnabledEnvVar); v != "" {
-		switch strings.ToLower(strings.TrimSpace(v)) {
-		case "1", "true", "yes", "on":
-			return true
-		case "0", "false", "no", "off":
-			return false
-		}
+	if v, ok := envBoolOverride(StorageEnabledEnvVar); ok {
+		return v
 	}
 	return c.Enabled != nil && *c.Enabled
+}
+
+// envBoolOverride reads an on/off environment override: (true, true) for 1,
+// true, yes or on; (false, true) for 0, false, no or off; ok is false when the
+// variable is unset or holds anything else, meaning "use the config".
+func envBoolOverride(name string) (value, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	}
+	return false, false
 }
 
 // EffectiveDriver returns the storage driver, defaulting to "gcs".

@@ -3,9 +3,13 @@ package cli
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/apicontract"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -43,31 +47,10 @@ func applyPhasePaceOverrides(settings *config.Settings, opts *types.Options) {
 	for _, p := range paceEnabledPhases(opts) {
 		running[p] = true
 	}
-	for _, knob := range []struct {
-		k     *paceKnob
-		field func(*config.PhasePace) *int
-		// paceField names this dial in config.PhasePaceSupports terms, so the
-		// "does this phase enforce it" question has one answer for the warning
-		// here, the pace table, and the phase headers.
-		paceField string
-	}{
-		{rateLimitKnob, func(p *config.PhasePace) *int { return &p.RateLimit }, config.PaceFieldRateLimit},
-		{concurrencyKnob, func(p *config.PhasePace) *int { return &p.Concurrency }, config.PaceFieldConcurrency},
-		{maxPerHostKnob, func(p *config.PhasePace) *int { return &p.MaxPerHost }, config.PaceFieldMaxPerHost},
-	} {
+	for _, knob := range paceDials {
+		// A pair the phase does not enforce never gets here: the root command
+		// refused it (refuseUnboundPaceFlags).
 		for _, phase := range sortedKeys(knob.k.perPhase) {
-			// An unsupported dial is still written into the section — the value is
-			// what the operator typed, and a later release that teaches the phase to
-			// read it should not need the flag re-typed — but it is announced, and
-			// resolvedPaceTable omits it so no consumer reads it as effective.
-			//
-			// A warning rather than an error for the same reason as the
-			// not-running case below: failing the scan would make the flag hostile
-			// to reuse, and the defect was silence, not permissiveness.
-			if running[phase] && !config.PhasePaceSupports(phase, knob.paceField) {
-				fmt.Fprintf(os.Stderr, "%s --%s override for phase %q is not enforced — that phase does not apply %s\n",
-					terminal.WarnPrefix(), knob.k.flagName, phase, knob.paceField)
-			}
 			if !running[phase] {
 				// A warning rather than an error: --only/--skip and the strategy
 				// all change which phases run, and failing a scan because a pace
@@ -85,6 +68,90 @@ func applyPhasePaceOverrides(settings *config.Settings, opts *types.Options) {
 			}
 		}
 	}
+	// A config value the phase does not read keeps running, with a warning; the
+	// same pairs ride on scan.started as pace_ignored.
+	for _, p := range configPaceIgnored(settings, opts) {
+		fmt.Fprintf(os.Stderr, "%s scanning_pace %s.%s from the %s is not enforced — that phase does not apply %s\n",
+			terminal.WarnPrefix(), p.Phase, p.Dial, p.Source, p.Dial)
+	}
+}
+
+// paceDials is the one table of pace dials: the flag that sets each and the
+// scanning_pace field it writes.
+var paceDials = []struct {
+	dial  string
+	k     *paceKnob
+	field func(*config.PhasePace) *int
+}{
+	{config.PaceFieldRateLimit, rateLimitKnob, func(p *config.PhasePace) *int { return &p.RateLimit }},
+	{config.PaceFieldConcurrency, concurrencyKnob, func(p *config.PhasePace) *int { return &p.Concurrency }},
+	{config.PaceFieldMaxPerHost, maxPerHostKnob, func(p *config.PhasePace) *int { return &p.MaxPerHost }},
+}
+
+// paceDialFlag is the flag that sets dial (nil for an unknown dial).
+func paceDialFlag(dial string) *paceKnob {
+	for _, d := range paceDials {
+		if d.dial == dial {
+			return d.k
+		}
+	}
+	return nil
+}
+
+// refuseUnboundPaceFlags refuses a (phase, dial) pair typed on the command
+// line that the phase does not enforce — a phase-qualified pace flag
+// (`--rate-limit spidering=5`) or a `--set scanning_pace.<phase>.<dial>` —
+// with exit 2 pace_unsupported naming the pairs that bind. A number presented
+// as a cap and silently ignored is the defect; refusing it is the only answer
+// a caller cannot misread. Run from the root PersistentPreRunE, before any
+// scan starts.
+func refuseUnboundPaceFlags() error {
+	var bad []string
+	for _, dial := range config.PaceFields {
+		k := paceDialFlag(dial)
+		for _, phase := range sortedKeys(k.perPhase) {
+			if !config.PhasePaceSupports(phase, dial) {
+				bad = append(bad, fmt.Sprintf("--%s %s=%d", k.flagName, phase, k.perPhase[phase]))
+			}
+		}
+	}
+	if len(globalSetOverlay) > 0 {
+		probe := config.DefaultSettings()
+		before := probe.ScanningPace.UnenforcedPhasePace(config.PhaseSectionNames())
+		for _, e := range config.ProcessOverlay() { // parsed and validated by installConfigOverlay
+			_ = config.SetField(probe, e.Key, e.Value)
+		}
+		for _, p := range probe.ScanningPace.UnenforcedPhasePace(config.PhaseSectionNames()) {
+			if !slices.Contains(before, p) {
+				bad = append(bad, fmt.Sprintf("--set scanning_pace %s.%s", p.Phase, p.Dial))
+			}
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	return clicommon.CLIError{
+		Err: fmt.Errorf("%s: that phase does not enforce that dial, so the value would not bind; nothing ran",
+			strings.Join(bad, ", ")),
+		Code: apicontract.CodePaceUnsupported,
+		Hint: "pairs that bind (phase=dial): " + strings.Join(config.EnforcedPhaseDials(), ", ") +
+			"; `vigolium schema pace -j` lists them",
+	}
+}
+
+// configPaceIgnored lists the pace values the settings hold for a phase this
+// scan runs that the phase does not enforce. Command-line pairs are refused
+// before a scan starts, so every one comes from the config (file, project
+// overlay or scanning profile).
+func configPaceIgnored(settings *config.Settings, opts *types.Options) []scanevents.PaceIgnored {
+	if settings == nil {
+		return nil
+	}
+	var out []scanevents.PaceIgnored
+	for _, p := range settings.ScanningPace.UnenforcedPhasePace(paceEnabledPhases(opts)) {
+		out = append(out, scanevents.PaceIgnored{Phase: p.Phase, Dial: p.Dial, Source: scanevents.PaceSourceConfig})
+	}
+	return out
 }
 
 // sortedKeys returns a map's keys in a stable order, so warnings and applied

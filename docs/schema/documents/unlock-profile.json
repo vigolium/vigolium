@@ -50,6 +50,12 @@
           },
           "type": "array"
         },
+        "rewrites": {
+          "items": {
+            "$ref": "#/$defs/spitolas.UnlockRewrite"
+          },
+          "type": "array"
+        },
         "routes": {
           "items": {
             "type": "string"
@@ -61,12 +67,54 @@
         },
         "settleMs": {
           "type": "integer"
+        },
+        "maxClicksPerRoute": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "origin"
+      ]
+    },
+    "spitolas.UnlockRewrite": {
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer"
+        },
+        "set": {
+          "items": {
+            "$ref": "#/$defs/spitolas.UnlockRewriteSet"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "method",
+        "path"
+      ]
+    },
+    "spitolas.UnlockRewriteSet": {
+      "properties": {
+        "pointer": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "pointer",
+        "value"
       ]
     },
     "spitolas.UnlockStub": {
@@ -97,5 +145,5 @@
     }
   },
   "title": "vigolium unlock-profile",
-  "description": "The kit unlock-walk --profile input: origin, localStorage/sessionStorage seeds, cookies, response stubs (same-origin, 2xx/4xx/5xx, body up to 64 KiB) and routes (maxRoutes default 40, at most 200; settleMs default 2500, at most 10000)."
+  "description": "The kit unlock-walk --profile input: origin, localStorage/sessionStorage seeds, cookies, response stubs (same-origin, 2xx/4xx/5xx, body up to 64 KiB), rewrites of real same-origin answers (status 2xx/4xx/5xx and/or up to 20 RFC 6901 pointer sets, values up to 64 KiB; never stored as evidence), routes (maxRoutes default 40, at most 200; settleMs default 2500, at most 10000) and maxClicksPerRoute (default 6, at most 30, 0 off)."
 }

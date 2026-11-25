@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -19,15 +21,22 @@ import (
 
 // sendScopeGate is the one scope check every command that sends requests runs
 // before its first request (fuzz, dns, replay single and bulk, traffic
-// --replay, kit param-mine, kit unlock-walk, finding verify): a host or path
-// the configured scope refuses is not sent to, the command exits 2 with
-// error.code out_of_scope, and --ignore-scope on that command overrides it.
+// --replay, kit param-mine, kit unlock-walk, kit h2-probe, finding verify): a
+// destination the configured scope refuses is not sent to, the command exits
+// 2 with error.code out_of_scope, and --ignore-scope on that command overrides
+// it. scan, scan-url and scan-request gate the same way at entry
+// (refuseOutOfScope in scan_admission.go).
 //
-// Both halves of the scope are enforced: scope.host (include, exclude, and the
-// CLI origin mode) and scope.path (include, exclude) for every request whose
-// path is known. A bare host (a dns name) is judged on the host rule alone. The
-// static-file filter is not applied: it decides what is worth scanning, not
-// what an operator may send on purpose.
+// The whole scope is enforced (config.ScopeMatcher.RejectTarget): scope.host
+// (include, exclude, and the CLI origin mode), scope.path (include, exclude)
+// for every request whose path is known, scope.port for every destination
+// whose port is known, scope.cidr for an IP-literal host, and the
+// private-address and instance-metadata blocks for an IP-literal or metadata
+// host no explicit scope entry names. A bare host (a dns name) is judged on
+// the host and address rules alone. fuzz's --resolve address is judged as the
+// address the name resolves to (checkResolved). The static-file filter is not
+// applied: it decides what is worth scanning, not what an operator may send on
+// purpose.
 //
 // A project with no host scope configured admits every host — unless
 // --require-scope (or VIGOLIUM_REQUIRE_SCOPE=1) is given, which makes a scope
@@ -97,10 +106,12 @@ func newSendScopeGate(ignore bool) (sendScopeGate, error) {
 	return sendScopeGate{matcher: config.NewScopeMatcher(scope, globalTargets...), require: require}, nil
 }
 
-// sendTarget is one destination the gate judges: a host, and the request path
-// when the caller knows it ("" when it does not).
+// sendTarget is one destination the gate judges: a host, the port when the
+// caller knows it (0 when it does not) and the request path when the caller
+// knows it ("" when it does not).
 type sendTarget struct {
 	host string
+	port int
 	path string
 }
 
@@ -113,12 +124,21 @@ func parseSendTarget(v string) sendTarget {
 			return urlSendTarget(u)
 		}
 	}
-	return sendTarget{host: sendHostname(v)}
+	t := sendTarget{host: sendHostname(v)}
+	if _, p, err := net.SplitHostPort(v); err == nil {
+		t.port, _ = strconv.Atoi(p)
+	}
+	return t
 }
 
-// urlSendTarget is the target of a request to u.
+// urlSendTarget is the target of a request to u: its port, or the scheme's
+// default port when it names none.
 func urlSendTarget(u *url.URL) sendTarget {
-	return sendTarget{host: strings.ToLower(u.Hostname()), path: requestPath(u)}
+	port, _ := strconv.Atoi(u.Port())
+	if port == 0 && u.Scheme != "" {
+		port = config.DefaultPortForScheme(u.Scheme)
+	}
+	return sendTarget{host: strings.ToLower(u.Hostname()), port: port, path: requestPath(u)}
 }
 
 // requestPath is the path a request to u asks for: its escaped path, "/" when
@@ -145,7 +165,37 @@ func (g sendScopeGate) checkSource(src *replaySource) error {
 		return nil
 	}
 	path, _ := replaySourcePath(src)
-	return g.checkTargets(sendTarget{host: strings.ToLower(src.Hostname), path: path})
+	return g.checkTargets(sendTarget{host: strings.ToLower(src.Hostname), port: src.Port, path: path})
+}
+
+// checkResolved judges the addresses fuzz's --resolve pins src's destination
+// to (overrides: "host:port" -> "addr:port", parseResolveOverrides): the
+// address rules apply to the pinned address as they would to the address the
+// name resolves to, so --resolve cannot point an in-scope name at an
+// excluded, private or instance-metadata address.
+func (g sendScopeGate) checkResolved(src *replaySource, overrides map[string]string) error {
+	if g.ignore || g.matcher == nil || src == nil || len(overrides) == 0 {
+		return nil
+	}
+	host := strings.ToLower(src.Hostname)
+	pinned, ok := overrides[strings.ToLower(net.JoinHostPort(host, strconv.Itoa(src.Port)))]
+	if !ok {
+		return nil
+	}
+	addrHost, _, err := net.SplitHostPort(pinned)
+	if err != nil {
+		return nil
+	}
+	addr, err := netip.ParseAddr(addrHost)
+	if err != nil {
+		// A name pinned to another name: the dial resolves it, so it is
+		// judged as a destination of its own.
+		return g.checkTargets(sendTarget{host: strings.ToLower(addrHost), port: src.Port})
+	}
+	if rule, pattern := g.matcher.RejectAddress(host, src.Port, "", []netip.Addr{addr.Unmap()}); rule != "" {
+		return outOfScopeError([]string{fmt.Sprintf("%s via --resolve %s (%s %s)", host, pinned, rule, pattern)})
+	}
+	return nil
 }
 
 // checkTargets is the gate itself.
@@ -165,25 +215,23 @@ func (g sendScopeGate) checkTargets(targets ...sendTarget) error {
 		if t.host == "" {
 			continue
 		}
-		key := t.host + t.path
+		key := t.host + ":" + strconv.Itoa(t.port) + t.path
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		if t.path == "" {
-			if !g.matcher.HostInScope(t.host) {
-				refused = append(refused, t.host)
-			}
-			continue
-		}
-		if g.matcher.InScopeTarget(t.host, t.path) {
-			continue
-		}
-		switch rule, pattern := g.matcher.RejectDetail(t.host, t.path); rule {
+		switch rule, pattern := g.matcher.RejectTarget(t.host, t.port, t.path); rule {
+		case "":
 		case config.ScopeRulePathExclude, config.ScopeRulePathInclude:
 			refused = append(refused, fmt.Sprintf("%s%s (%s %s)", t.host, t.path, rule, pattern))
-		default:
+		case config.ScopeRuleHostInclude, config.ScopeRuleHostExclude, config.ScopeRuleCLIOriginMode:
 			refused = append(refused, t.host)
+		default:
+			dest := t.host
+			if t.port > 0 {
+				dest = net.JoinHostPort(t.host, strconv.Itoa(t.port))
+			}
+			refused = append(refused, fmt.Sprintf("%s (%s %s)", dest, rule, pattern))
 		}
 	}
 	if len(refused) == 0 {
@@ -227,7 +275,7 @@ func outOfScopeError(refused []string) error {
 	return clicommon.CLIError{
 		Err:  fmt.Errorf("outside the configured scope, nothing sent: %s%s", strings.Join(shown, ", "), more),
 		Code: apicontract.CodeOutOfScope,
-		Hint: "pass --ignore-scope to send anyway, or widen scope.host.include / scope.path (vigolium scope ls shows the rules)",
+		Hint: "pass --ignore-scope to send anyway, or widen scope.host.include / scope.path / scope.port / scope.cidr (vigolium scope ls shows the rules)",
 	}
 }
 

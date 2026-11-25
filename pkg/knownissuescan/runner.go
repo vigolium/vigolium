@@ -573,16 +573,17 @@ var installTemplates = func(ctx context.Context, dir string, pin nucleitemplates
 }
 
 // TemplatesDir resolves the directory nuclei templates load from: customDir
-// when set, else ~/nuclei-templates.
+// when set, else ~/nuclei-templates ($VIGOLIUM_STATE_DIR/nuclei-templates when
+// that is set).
 func TemplatesDir(customDir string) (string, error) {
 	if customDir != "" {
 		return customDir, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("knownissuescan: cannot determine home directory: %w", err)
+	dir := paths.NucleiTemplatesDir()
+	if dir == "" {
+		return "", fmt.Errorf("knownissuescan: cannot determine home directory and %s is unset", paths.StateDirEnv)
 	}
-	return filepath.Join(home, "nuclei-templates"), nil
+	return dir, nil
 }
 
 // TemplatesPresent reports whether the templates directory exists. No network.

@@ -348,6 +348,11 @@ type Options struct {
 	SpideringBrowserInsecure bool
 	// SpideringRequireAuth sets spidering.require_auth (--require-auth).
 	SpideringRequireAuth bool
+	// BrowserSessionFile (--browser-session-file) names a file the spider's
+	// harvested sessions (cookies, the browser's User-Agent, a harvested
+	// token) are written to after spidering and read from at scan start, so
+	// a clearance one invocation earned carries into the next. Written 0600.
+	BrowserSessionFile string
 
 	// CarryBrowserSession carries the spidering browser's WAF/bot-cleared session
 	// (cookies, and — only when a non-default User-Agent is configured — the
@@ -389,6 +394,21 @@ type Options struct {
 	// records (full UUIDs, already resolved and checked against the project).
 	// Empty means every eligible record.
 	RecordUUIDs []string
+	// OnlyNewSinceAt (--only-new-since) is the cursor floor of a stored-record
+	// scan: the dynamic assessment reads only records whose created_at is at
+	// or after it. It becomes the scan row's start_cursor_at, which the
+	// assessment's cursor rewinds to. Zero means no floor.
+	OnlyNewSinceAt time.Time
+	// AllowWrites (--allow-writes) lets the dynamic assessment send stored
+	// write templates: records whose method is not GET/HEAD/OPTIONS and that
+	// were first stored without a response (an ingested spec operation, a
+	// request-only stub). Off, they are held back and counted in the
+	// templates_skipped_unsafe_method caveat.
+	AllowWrites bool
+	// CallerTags (--caller-tag k=v, VIGOLIUM_CALLER_TAG) are opaque labels
+	// the caller attaches to the invocation, as sorted "k=v" strings: stored
+	// on the scan row (scans.tags) and on scan.started as caller_tags.
+	CallerTags []string
 
 	// OnlyPhase isolates a single scanning phase (discover, external-harvest, dynamic-assessment)
 	OnlyPhase string
@@ -517,6 +537,11 @@ type Options struct {
 	ConcurrencyCeiling int
 
 	AllowRiskyPayloads *bool
+
+	// MaxModuleTier is --max-module-tier: a hard tier ceiling that binds every
+	// selection, explicit ones included (config dynamic-assessment.max_module_tier;
+	// the lower of the two applies). Empty: no hard ceiling.
+	MaxModuleTier string
 
 	// NoParamDedup is --no-param-dedup: turn off the cross-module (param,
 	// vuln-class) skip so every module of a class tests a parameter even after

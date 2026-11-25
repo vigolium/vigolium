@@ -32,6 +32,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/scanplan"
@@ -128,6 +129,9 @@ const (
 	StatusInterrupted = "interrupted"
 	StatusFailed      = "failed"
 	StatusCurtailed   = "curtailed"
+	// StatusSkipped is a phase.finished status only: the phase did no work
+	// (reasons say why: no_modules, no_inputs, or a budget that ran out first).
+	StatusSkipped = "skipped"
 )
 
 // Event is one line of the stream. Field order in the struct is the field order
@@ -159,6 +163,11 @@ type Event struct {
 	// whenever any phase resolves to something other than the global values.
 	// Keyed by canonical phase id.
 	PhasePace map[string]Pace `json:"phase_pace,omitempty"`
+	// PaceIgnored are the per-phase pace values the config sets on a phase
+	// this scan runs that the phase does not enforce (scan.started): each
+	// warned about and inert. A command-line pair that cannot bind is refused
+	// before the scan (pace_unsupported), so Source is "config".
+	PaceIgnored []PaceIgnored `json:"pace_ignored,omitempty"`
 
 	// Plan is the resolved scan plan (scan.plan): phases enabled and disabled
 	// with the reason, budgets, modules, scope, auth session names, target
@@ -203,6 +212,9 @@ type Event struct {
 
 	// Budgets are the request budgets in force (scan.started).
 	Budgets *Budgets `json:"budgets,omitempty"`
+	// CallerTags are the invocation's --caller-tag / VIGOLIUM_CALLER_TAG
+	// labels (scan.started), also stored on the scan row as scans.tags.
+	CallerTags map[string]string `json:"caller_tags,omitempty"`
 	// RequestCapEnforcement says, per planned phase, how strictly the request
 	// budgets hold for its traffic: "hard" (every request is gated), "soft"
 	// (some is counted and the scan stopped within 500ms of passing the cap) or
@@ -251,6 +263,10 @@ type Event struct {
 	// extensions that failed to load (scan.finished).
 	ModuleErrors     map[string]int64 `json:"module_errors,omitempty"`
 	ExtensionsFailed []string         `json:"extensions_failed,omitempty"`
+	// ModuleStats is the per-module ledger (scan.finished): calls, wire
+	// requests, findings, errors and the calls not made by skip reason, as
+	// stored on scans.module_stats.
+	ModuleStats map[string]ModuleStat `json:"module_stats,omitempty"`
 	// Extension load failures (extension.failed): Path is the extension file,
 	// Stage the load step that failed (read, transpile, compile, metadata,
 	// schema, unknown_type, module), and Explicit whether it was named with
@@ -297,8 +313,17 @@ type Event struct {
 	Unit  string `json:"unit,omitempty"`
 
 	// WAF / edge.
-	Host            string `json:"host,omitempty"`
-	Vendor          string `json:"vendor,omitempty"`
+	Host   string `json:"host,omitempty"`
+	Vendor string `json:"vendor,omitempty"`
+	// BlockKind (waf.block) says what the edge evidence is: "vendor" (a named
+	// vendor's block signature), "challenge" (a vendor challenge page, on a
+	// 2xx as well as a block status) or "refused" (a block status matched only
+	// by the generic phrase rule — no vendor is named and Vendor is absent,
+	// because an application's own 403 reads the same).
+	BlockKind string `json:"block_kind,omitempty"`
+	// Transport (waf.block) is the sender that met the block: "requester",
+	// "discovery" or "spider". A host is announced once, by whichever came first.
+	Transport       string `json:"transport,omitempty"`
 	StatusCode      int    `json:"status_code,omitempty"`
 	Detail          string `json:"detail,omitempty"`
 	ConcurrencyFrom int    `json:"concurrency_from,omitempty"`
@@ -336,6 +361,27 @@ type Pace struct {
 	RateLimit   int `json:"rate_limit"`
 	Concurrency int `json:"concurrency"`
 	MaxPerHost  int `json:"max_per_host"`
+}
+
+// PaceIgnored is one (phase, dial) pace value no part of the scan reads.
+type PaceIgnored struct {
+	Phase  string `json:"phase"`
+	Dial   string `json:"dial"`
+	Source string `json:"source"`
+}
+
+// PaceSourceConfig is PaceIgnored.Source for a value from the settings (config
+// file, project overlay or scanning profile).
+const PaceSourceConfig = "config"
+
+// ModuleStat is one module's line in scan.finished's module_stats. Skips
+// counts the calls not made, by reason (database.ModuleSkipReasons).
+type ModuleStat struct {
+	Invocations int64            `json:"invocations,omitempty"`
+	Requests    int64            `json:"requests,omitempty"`
+	Findings    int64            `json:"findings,omitempty"`
+	Errors      int64            `json:"errors,omitempty"`
+	Skips       map[string]int64 `json:"skips,omitempty"`
 }
 
 // Budgets are the request budgets a scan runs under. Zero means unlimited.
@@ -389,6 +435,8 @@ type Emitter struct {
 	// runs one per request), and a package-level latch would let only the first
 	// of them ever emit a terminal event.
 	terminalOnce sync.Once
+	// terminated is set once the terminal event has been written (Terminated).
+	terminated atomic.Bool
 }
 
 // Format names accepted by --events. Only NDJSON exists today; the flag takes a
@@ -449,8 +497,17 @@ func (e *Emitter) Finish(ev Event) {
 	e.terminalOnce.Do(func() {
 		ev.Type = TypeScanFinished
 		e.Emit(ev)
+		e.terminated.Store(true)
 		e.Close()
 	})
+}
+
+// Terminated reports whether this emitter has written its terminal
+// scan.finished. A caller that owes the invocation a terminal event (a refusal
+// on its way out) writes one only when this is false, so the stream never
+// carries two. False on a nil or disabled Emitter.
+func (e *Emitter) Terminated() bool {
+	return e.Enabled() && e.terminated.Load()
 }
 
 // Emit writes one event. The caller supplies the type and payload; v, ts and

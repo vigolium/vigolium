@@ -18,6 +18,8 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/deparos/discovery"
+	"github.com/vigolium/vigolium/pkg/deparos/waf"
+	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/spitolas"
@@ -254,7 +256,7 @@ func runSpiderWatchdog(ctx context.Context, cfg spitolas.SpiderConfig, rw *datab
 	oc, wedged := runWithWatchdog(
 		budget+spideringTeardownGrace,
 		func() crawlOutcome {
-			res, err := spitolas.RunSpider(ctx, cfg, rw)
+			res, err := spitolas.RunSpider(ctx, cfg, spiderSink{rw})
 			rw.Close()
 			return crawlOutcome{res: res, err: err}
 		},
@@ -433,6 +435,20 @@ func groupByHost[T any](items []T, host func(T) string) [][]T {
 // bridge, the scope adapter, the intensity policy, the graph output) is one
 // decision, and keeping two copies is how a field added to one phase silently
 // goes missing from the other.
+// spiderBlockReporter reports the crawl's classified blocks and challenge pages
+// on the scan requester's notifier (transport "spider"), so a walled crawl
+// raises the waf.block event and the phase's edge_blocked like any other
+// sender. nil without a requester.
+func spiderBlockReporter(infra *phaseInfra) func(string, int, *waf.BlockResult) {
+	if infra == nil || infra.httpRequester == nil {
+		return nil
+	}
+	requester := infra.httpRequester
+	return func(host string, status int, block *waf.BlockResult) {
+		requester.ReportBlock(host, block, status, http.BlockTransportSpider)
+	}
+}
+
 func (r *Runner) buildSpiderConfig(target string, settingsCfg config.SpideringConfig, maxDuration time.Duration, infra *phaseInfra) spitolas.SpiderConfig {
 	rp := resolveBrowserPolicy(settingsCfg, r.options.Intensity)
 	rp.applyTrafficPolicy(r.options.TrafficPolicy)
@@ -477,6 +493,7 @@ func (r *Runner) buildSpiderConfig(target string, settingsCfg config.SpideringCo
 		ExcludeSelectors:        settingsCfg.EffectiveExcludeSelectors(),
 		MethodAllowed:           r.browserMethodFilter(),
 		AuthMonitor:             r.liveSessionMonitor(infra),
+		OnBlock:                 spiderBlockReporter(infra),
 		BrowserCompat:           &compat,
 		NoForms:                 !policy.EditFields && !policy.SubmitForms,
 		LoginCredentialAttempts: policy.LoginAttempts,
@@ -555,7 +572,7 @@ func (r *Runner) openSpiderSession(ctx context.Context, group []string, settings
 	base := r.buildSpiderConfig(group[0], settingsCfg, maxDuration, infra)
 	counters.wire(&base)
 	rw := r.newScanRecordWriter()
-	sess, err := spitolas.NewSpiderSession(ctx, base, rw)
+	sess, err := spitolas.NewSpiderSession(ctx, base, spiderSink{rw})
 	if err != nil {
 		zap.L().Warn("Spidering: shared session launch failed, falling back to one browser per target",
 			zap.String("host", httpmsg.HostnameFromURL(group[0])), zap.Error(err))
@@ -917,6 +934,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 						CookieHeader: cookieHeader,
 						Cookies:      httpmsg.CarriedCookiesFromHTTP(sessionHost, result.HarvestedCookies),
 					}
+					carried.BrowserUserAgent = result.BrowserUserAgent
 					if carryUA {
 						carried.UserAgent = result.BrowserUserAgent
 					}
@@ -1093,10 +1111,18 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	// The requester is shared across all phases (executeNativePhase threads one
 	// infra), so a single injection reaches every downstream request.
 	if len(harvested) > 0 {
+		// Sessions loaded from --browser-session-file stay carried for the
+		// hosts this crawl harvested nothing on; a fresh harvest wins.
+		for host, s := range r.browserSessions {
+			if _, ok := harvested[host]; !ok {
+				harvested[host] = s
+			}
+		}
 		r.browserSessions = harvested
 		if infra.httpRequester != nil {
 			infra.httpRequester.SetCarriedSessions(harvested)
 		}
+		r.saveBrowserSessionFile()
 		hosts := make([]string, 0, len(harvested))
 		for h := range harvested {
 			hosts = append(hosts, h)

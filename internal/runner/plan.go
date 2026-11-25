@@ -508,13 +508,20 @@ func planModules(p *scanplan.Plan, opts *types.Options, settings *config.Setting
 		sel = FilterModulesForRun(opts, settings)
 	} else {
 		sel.TierCeiling = scanTierCeiling(opts)
+		sel.MaxTier = maxModuleTierRank(opts, settings)
+	}
+	ceiling := sel.TierCeiling
+	if sel.MaxTier > 0 && sel.MaxTier < ceiling {
+		ceiling = sel.MaxTier
 	}
 	riskyAllowed := RiskyPayloadsAllowed(opts, settings)
 	m := scanplan.Modules{
 		Active:               len(sel.Active),
 		Passive:              len(sel.Passive),
-		TierCeiling:          tierNames[sel.TierCeiling],
+		TierCeiling:          tierNames[ceiling],
+		MaxModuleTier:        tierNames[sel.MaxTier],
 		TierFiltered:         len(sel.TierDeferred),
+		TierCapped:           len(sel.TierCapped),
 		HygieneSuppressed:    len(sel.HygieneSuppressed),
 		RiskGated:            len(sel.RiskWithheld),
 		RiskyPayloadsAllowed: riskyAllowed,

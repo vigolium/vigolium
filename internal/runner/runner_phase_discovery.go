@@ -19,6 +19,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/deparos/discovery"
 	"github.com/vigolium/vigolium/pkg/deparos/waf"
+	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/output"
@@ -34,26 +35,43 @@ import (
 // phase-wide rather than per target.
 func discoveryEgress(infra *phaseInfra, rateLimit int) func(nethttp.RoundTripper) nethttp.RoundTripper {
 	var svc *services.Services
+	var requester *http.Requester
 	if infra != nil {
 		svc = infra.svc
+		requester = infra.httpRequester
 	}
 	gate := svc.EgressGate().WithRate(buildScanRateLimiter(rateLimit))
 	return func(next nethttp.RoundTripper) nethttp.RoundTripper {
 		// The feedback variant: discovery reports every response to the host
 		// limiter as the scan Requester does, so a throttling or WAF-blocking
 		// host backs off and a host pre-armed by preflight can recover.
-		return gate.FeedbackRoundTripper(next, egress.LaneNormal, wafBlockClassifier{})
+		return gate.FeedbackRoundTripper(next, egress.LaneNormal, wafBlockClassifier{requester: requester})
 	}
 }
 
 // wafBlockClassifier is the scan Requester's WAF block classification
-// (deparos/waf), shaped for egress.FeedbackRoundTripper.
-type wafBlockClassifier struct{}
+// (deparos/waf.ClassifyResponse: block rules and 2xx challenge pages), shaped
+// for egress.FeedbackRoundTripper. With a requester it reports each block on
+// the requester's notifier as transport "discovery", so discovery's traffic
+// raises the same waf.block event, operator notice and edge_blocked count the
+// requester's own traffic does.
+type wafBlockClassifier struct {
+	requester *http.Requester
+}
 
-func (wafBlockClassifier) IsBlockStatus(status int) bool { return waf.IsBlockStatusCode(status) }
+func (wafBlockClassifier) IsBlockStatus(status int) bool { return waf.IsCandidateStatusCode(status) }
 
 func (wafBlockClassifier) IsBlock(status int, header nethttp.Header, body []byte) bool {
-	return waf.ClassifyParts(status, header, body) != nil
+	return waf.ClassifyResponse(status, header, body) != nil
+}
+
+func (c wafBlockClassifier) IsHostBlock(host string, status int, header nethttp.Header, body []byte) bool {
+	block := waf.ClassifyResponse(status, header, body)
+	if block == nil {
+		return false
+	}
+	c.requester.ReportBlock(host, block, status, http.BlockTransportDiscovery)
+	return true
 }
 
 func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error {

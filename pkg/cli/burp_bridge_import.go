@@ -21,7 +21,10 @@ func importBurpTrafficToDB(
 	if err != nil {
 		return burpbridge.ImportResult{}, err
 	}
-	return burpbridge.ImportIntoRepository(ctx, client, repo, query, projectUUID)
+	// The invocation's scans row (--caller-tag lands on it), stamped on every
+	// row the import inserts.
+	scanUUID := newInvocationScanRow(invocationScanImport).ensure(ctx, repo, projectUUID, bridgeURL)
+	return burpbridge.ImportIntoRepository(ctx, client, repo, query, projectUUID, scanUUID)
 }
 
 // burpImportResultJSON builds the -j document for a live-bridge import.

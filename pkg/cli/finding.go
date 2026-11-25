@@ -148,6 +148,7 @@ func init() {
 	pf.BoolVar(&findingAsc, "asc", false, "Sort in ascending order (default: descending)")
 	pf.IntVarP(&findingLimit, "limit", "n", 100, "Maximum findings to display")
 	pf.IntVar(&findingOffset, "offset", 0, "Number of findings to skip (for pagination)")
+	registerListCursorFlag(pf, &findingCursor)
 
 	// Finding-specific filter flags
 	pf.StringVar(&findingSeverity, "severity", "", "Filter by severity: critical,high,medium,low,suspect,info (comma-separated; single-letter shorthands or any unambiguous prefix ok, e.g. 'h,c' or 'me,info'). Alias: --sev")
@@ -262,6 +263,9 @@ func runFinding(cmd *cobra.Command, args []string) error {
 	if err := validateFindingCurlFlags(cmd); err != nil {
 		return err
 	}
+	if err := validateListCursorFlags(findingCursor, findingOffset); err != nil {
+		return err
+	}
 	var fuzzyTerm, positionalID string
 	// Argument routing mirrors traffic: "tree" activates tree mode, "ls"/"list"
 	// are no-ops (default table view), a bare integer is a finding id (the
@@ -314,9 +318,18 @@ func runFinding(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		fqb := database.NewFindingsQueryBuilder(db, filters)
-		findings, total, err := fqb.ExecuteWithCount(ctx)
+		order := fqb.KeysetOrder()
+		after, err := decodeListCursor(findingCursor, "finding", order)
+		if err != nil {
+			return err
+		}
+		findings, total, more, err := fqb.ExecutePage(ctx, after)
 		if err != nil {
 			return fmt.Errorf("failed to query findings: %w", err)
+		}
+		page := listPage{more: more, after: cursorAfterRows(ctx, findings, "finding", order, fqb.KeysetAt)}
+		if more && globalJSON {
+			page.next = page.after(len(findings))
 		}
 		if positionalID != "" && total == 0 {
 			return clicommon.CLIError{
@@ -340,6 +353,8 @@ func runFinding(cmd *cobra.Command, args []string) error {
 			findings = picked
 			total = int64(len(findings))
 			findingOffset = 0
+			// The picked rows are the whole result: nothing follows them.
+			page = listPage{}
 		}
 
 		// Burp push is an action, not a display — hand the selected findings'
@@ -362,7 +377,7 @@ func runFinding(cmd *cobra.Command, args []string) error {
 		}
 
 		if globalJSON {
-			return displayFindingsJSON(ctx, cmd, db, findings, total, filters.ProjectUUID)
+			return displayFindingsJSON(ctx, cmd, db, findings, total, filters.ProjectUUID, pageEnvOpts(page))
 		}
 		if readFormat == "tsv" {
 			columns := tsvColumns(defaultFindingTSVColumns)
@@ -688,7 +703,7 @@ func printActiveFindingFilters(filters database.QueryFilters, fuzzyTerm string) 
 	s.print(findingMarkdown || findingBurp || findingRaw)
 }
 
-func displayFindingsJSON(ctx context.Context, cmd *cobra.Command, db *database.DB, findings []*database.Finding, total int64, projectUUID string) error {
+func displayFindingsJSON(ctx context.Context, cmd *cobra.Command, db *database.DB, findings []*database.Finding, total int64, projectUUID string, extra ...envOpt) error {
 	opts := agentViewOptionsFromFlags()
 	env := newMachineEnvelope(cmd, "findings",
 		findingViews(ctx, db, findings, opts, findingWithRecords), total, findingOffset, findingLimit)
@@ -703,7 +718,7 @@ func displayFindingsJSON(ctx context.Context, cmd *cobra.Command, db *database.D
 	if !findingWithRecords && len(findings) > 0 {
 		env.WithQuery("finding", "--id", strconv.FormatInt(findings[0].ID, 10), "--json", "--with-records")
 	}
-	return writeAgentJSON(env)
+	return writeAgentJSON(applyEnvOpts(env, extra))
 }
 
 // displayFindingsBurp shows findings with their associated HTTP records in Burp-style format.

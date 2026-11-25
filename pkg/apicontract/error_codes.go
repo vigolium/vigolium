@@ -94,6 +94,15 @@ const (
 	// configured scope refuses; nothing was sent (exit 2). --ignore-scope
 	// overrides it.
 	CodeOutOfScope ErrorCode = "out_of_scope"
+	// CodeRefusedByPolicy: under VIGOLIUM_PINNED=1 the command line tried to
+	// widen what the environment pins (another --config or --db, a scope,
+	// redirect, redaction, tier or risk override, `scan stop`); nothing ran
+	// (exit 2). error.hint carries the command line without the refused part.
+	CodeRefusedByPolicy ErrorCode = "refused_by_policy"
+	// CodePaceUnsupported: a phase-qualified pace flag names a (phase, dial)
+	// pair that phase does not enforce; nothing ran (exit 2). The message names
+	// the pairs that bind (`schema pace`).
+	CodePaceUnsupported ErrorCode = "pace_unsupported"
 	// CodeScanAbandoned: the scan's process stopped heartbeating.
 	CodeScanAbandoned ErrorCode = "scan_abandoned"
 	// CodeResumeMismatch: --resume-scan named a scan whose targets, scope or
@@ -228,6 +237,7 @@ var knownErrorCodes = []ErrorCode{
 	CodeFindingNotFound, CodeMethodNotAllowed, CodePayloadTooLarge,
 	CodeServiceUnavailable, CodeDatabaseUnavailable, CodeUnsupportedAPIVersion,
 	CodeProviderUnreachable,
+	CodeRefusedByPolicy, CodePaceUnsupported,
 }
 
 var knownErrorCodeSet = func() map[ErrorCode]struct{} {
@@ -258,12 +268,12 @@ func (c ErrorCode) IsIncomplete() bool {
 }
 
 // Exit is the process exit status of a CLI failure that carries c:
-// usage_error and out_of_scope are a misuse of the command line (nothing ran,
-// the fix is a flag), gate_tripped is the --fail-on gate, the incomplete codes
+// usage_error, out_of_scope, refused_by_policy and pace_unsupported are a
+// misuse of the command line (nothing ran, the fix is a flag), gate_tripped is the --fail-on gate, the incomplete codes
 // are a completed-but-incomplete result, and every other code is a failure.
 func (c ErrorCode) Exit() int {
 	switch {
-	case c == CodeUsageError, c == CodeOutOfScope:
+	case c == CodeUsageError, c == CodeOutOfScope, c == CodeRefusedByPolicy, c == CodePaceUnsupported:
 		return ExitUsageError
 	case c == CodeGateTripped:
 		return ExitFailOnGate

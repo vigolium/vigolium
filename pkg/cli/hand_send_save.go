@@ -63,12 +63,27 @@ type handSendSaver struct {
 	source      string
 	// skip says why nothing is stored ("" when saving).
 	skip string
+	// row is the invocation's scans row (invocationScanRow), created on the
+	// first store and stamped on every record this saver writes.
+	row *invocationScanRow
+}
+
+// scanUUID is the invocation's scan row, created on first use (target names
+// it then).
+func (s *handSendSaver) scanUUID(ctx context.Context, target string) string {
+	return s.row.ensure(ctx, s.repo, s.projectUUID, target)
+}
+
+// lineage is the lineage every record this saver stores carries: its scan
+// row, plus remarks.
+func (s *handSendSaver) lineage(ctx context.Context, target string, remarks ...string) database.RecordLineage {
+	return database.RecordLineage{ScanUUID: s.scanUUID(ctx, target), Remarks: remarks}
 }
 
 // newHandSendSaver opens the project store for writes unless saving is off
 // or the invocation forbids writes.
 func newHandSendSaver(source string, enabled bool) *handSendSaver {
-	s := &handSendSaver{source: source}
+	s := &handSendSaver{source: source, row: newInvocationScanRow(source)}
 	switch {
 	case !enabled:
 		s.skip = "disabled"
@@ -112,7 +127,7 @@ func (s *handSendSaver) save(ctx context.Context, origin string, rawRequest []by
 	}
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	return s.repo.SaveRecord(saveCtx, rr, s.source, s.projectUUID)
+	return s.repo.SaveRecordWithLineage(saveCtx, rr, s.source, s.projectUUID, s.lineage(saveCtx, origin))
 }
 
 // handSentExchange is the exchange to store for rawRequest sent to origin and
@@ -326,7 +341,10 @@ func (c *fuzzExchangeCollector) store(ctx context.Context, s *handSendSaver, ori
 		}
 	}
 	c.items = nil
-	w := database.NewRecordWriter(s.repo, database.RecordWriterConfig{})
+	if len(exchanges) == 0 {
+		return uuids
+	}
+	w := database.NewRecordWriter(s.repo, database.RecordWriterConfig{ScanUUID: s.scanUUID(ctx, origin)})
 	saved, err := w.SaveRecordBatch(context.WithoutCancel(ctx), exchanges, s.source, s.projectUUID)
 	w.Close()
 	if err != nil {

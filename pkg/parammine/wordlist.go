@@ -20,6 +20,11 @@ import (
 // and common entity names with their id/name/type suffixes (user_id, orderId).
 const BuiltinWordlistName = "params.txt"
 
+// BuiltinHeaderWordlistName is the embedded list of request header names
+// mined under LocationHeader (`vigolium kit wordlist headers`): override,
+// routing, client-address, identity and debug headers, curated in-repo.
+const BuiltinHeaderWordlistName = "headers.txt"
+
 // maxNameLen bounds a usable parameter name; longer entries are noise.
 const maxNameLen = 64
 
@@ -40,6 +45,25 @@ func Builtin() ([]string, error) {
 		builtinNames = ParseNames(data)
 	})
 	return builtinNames, builtinErr
+}
+
+var (
+	builtinHeadersOnce sync.Once
+	builtinHeaderNames []string
+	builtinHeadersErr  error
+)
+
+// BuiltinHeaders returns the embedded header-name list, parsed once.
+func BuiltinHeaders() ([]string, error) {
+	builtinHeadersOnce.Do(func() {
+		data, err := wordlists.ReadList(BuiltinHeaderWordlistName)
+		if err != nil {
+			builtinHeadersErr = err
+			return
+		}
+		builtinHeaderNames = ParseNames(data)
+	})
+	return builtinHeaderNames, builtinHeadersErr
 }
 
 // ReadWordlistFile reads a one-name-per-line file ("#" comments allowed).

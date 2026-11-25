@@ -12,6 +12,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/reconsig"
 	"github.com/vigolium/vigolium/pkg/types"
+	"go.uber.org/zap"
 )
 
 // Redirect modes accepted by Options.RedirectMode / --redirect-mode.
@@ -31,7 +32,7 @@ const (
 	// unchanged. Cross-scheme and cross-port hops within that domain follow.
 	RedirectModeSameApex = "same-apex"
 	// RedirectModeInScope follows a hop only when its host is inside the scan's
-	// scope (Services.HopScope, installed by the runner from the scope
+	// scope (Services.SendScope, installed by the runner from the scope
 	// matcher). With no scope installed (a library caller, a bare requester)
 	// it behaves as same-apex. This is the default: a redirect is a
 	// request to a new destination, and "any" sent scan traffic — payloads
@@ -137,14 +138,17 @@ func operatorHopHeaders(headers []string) map[string]bool {
 // its starting domain one hop at a time, each hop looking legitimate relative
 // to the one before it.
 //
-// scope is read per hop (the runner installs it on Services after the
-// requester is built); a nil getter or a nil result means "no scope known",
-// under which in-scope degrades to same-apex. A followed hop to a different
+// guard's scope is read per hop; no scope (a nil guard or a nil
+// Services.SendScope) means "no scope known", under which in-scope degrades to
+// same-apex. In every mode a hop the mode would follow is then judged by the
+// guard's destination rules (port, explicit path exclusions, scope.cidr, the
+// private-address and instance-metadata blocks): a hop they refuse is not
+// followed, and the 3xx is the response. A followed hop to a different
 // host:port has its headers stripped to crossHostKeepHeaders in every mode,
 // except that operatorHeaders (operatorHopHeaders: non-credential -H names)
 // also survive when the scope admits the hop host. Without a scope nothing
 // admits a host, so they are stripped.
-func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(host string) bool, operatorHeaders map[string]bool) func(*http.Request, []*http.Request) error {
+func makeScopedRedirectFunc(mode string, maxRedirects int, guard *sendGuard, operatorHeaders map[string]bool) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		if len(via) >= maxRedirects {
 			return http.ErrUseLastResponse
@@ -162,8 +166,8 @@ func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(hos
 		// headers to keep.
 		crossHost := httpmsg.URLHostPort(req.URL) != httpmsg.URLHostPort(via[0].URL)
 		var inScope func(string) bool
-		if scope != nil && (mode == RedirectModeInScope || (crossHost && len(operatorHeaders) > 0)) {
-			inScope = scope()
+		if mode == RedirectModeInScope || (crossHost && len(operatorHeaders) > 0) {
+			inScope = guard.hostAdmits()
 		}
 		switch mode {
 		case RedirectModeSameHost:
@@ -182,6 +186,10 @@ func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(hos
 			} else if !sameRegistrableDomain(via[0].URL.Host, req.URL.Host) {
 				return http.ErrUseLastResponse
 			}
+		}
+		if err := guard.checkURL(req.URL, false); err != nil {
+			zap.L().Debug("Redirect hop refused by scope", zap.String("location", req.URL.Redacted()), zap.Error(err))
+			return http.ErrUseLastResponse
 		}
 		if crossHost {
 			var keep map[string]bool

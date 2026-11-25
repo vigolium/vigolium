@@ -39,6 +39,64 @@
               "type": "null"
             }
           ]
+        },
+        "aliases": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targets": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/cli.targetSpec"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reach": {
+          "type": "string"
+        },
+        "reach_flags": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/cli.reachFlag"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reach_note": {
+          "type": "string"
+        },
+        "pipeline": {
+          "type": "string",
+          "enum": [
+            "full",
+            "single-request"
+          ]
+        },
+        "translates_to": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -52,7 +110,60 @@
         "writes_global",
         "sends_traffic",
         "read_only_flag",
-        "value_flags"
+        "value_flags",
+        "aliases",
+        "targets",
+        "reach",
+        "reach_flags"
+      ]
+    },
+    "cli.reachFlag": {
+      "properties": {
+        "flag": {
+          "type": "string"
+        },
+        "short": {
+          "type": "string"
+        },
+        "with": {
+          "type": "string"
+        },
+        "with_short": {
+          "type": "string"
+        },
+        "reach": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "flag",
+        "reach"
+      ]
+    },
+    "cli.targetSpec": {
+      "properties": {
+        "flag": {
+          "type": "string"
+        },
+        "short": {
+          "type": "string"
+        },
+        "positional": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "pins": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind"
       ]
     },
     "contract.ErrorBody": {
@@ -93,6 +204,7 @@
             "not_ready",
             "out_of_scope",
             "output_too_large",
+            "pace_unsupported",
             "partial",
             "payload_too_large",
             "pdf_failed",
@@ -104,6 +216,7 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "refused_by_policy",
             "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
@@ -382,6 +495,19 @@
           "type": "null"
         }
       ]
+    },
+    "global_reach_flags": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/cli.reachFlag"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "additionalProperties": false,
@@ -396,8 +522,9 @@
     "items",
     "project_source",
     "global_value_flags",
+    "global_reach_flags",
     "kind"
   ],
   "title": "vigolium schema commands -j",
-  "description": "One row per command: kind, db (none/read/write), reads_store, mutates, writes_global, sends_traffic, read_only_flag and value_flags; global_value_flags are the root's."
+  "description": "One row per command: kind, db (none/read/write), reads_store, mutates, writes_global, sends_traffic, read_only_flag, value_flags, aliases (every other spelling, `run \u003cphase\u003e` included), targets (the flag or positional naming a target, and its kind: url, host, file, input, record_uuid, scan_uuid, finding_id), reach (none, line, store, unbounded), reach_flags (each set flag replaces the reach, in order), pipeline (full or single-request, on the commands that run the scan pipeline) and translates_to (the native lines a shim or phase front door runs as); global_value_flags are the root's, global_reach_flags apply to every command."
 }

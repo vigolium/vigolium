@@ -89,12 +89,12 @@ func TestIngestNamesBlockedRecordsAndKeepsThemOnRequest(t *testing.T) {
 	list := filepath.Join(t.TempDir(), "urls.txt")
 	require.NoError(t, os.WriteFile(list, []byte(srv.URL+"/a\n"+srv.URL+"/b\n"), 0o600))
 
-	code, stdout, stderr := e.run(t, nil, "ingest", "-i", list, "-j")
+	code, stdout, stderr := e.run(t, nil, "ingest", "-i", list, "--fetch-responses", "-j")
 	require.Equal(t, 1, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
 	assert.Contains(t, stdout+stderr, "blocked 2")
 	assert.Contains(t, stdout+stderr, "--keep-blocked", "the error names the flag that fixes it")
 
-	code, stdout, stderr = e.run(t, nil, "ingest", "-i", list, "--keep-blocked", "-j")
+	code, stdout, stderr = e.run(t, nil, "ingest", "-i", list, "--fetch-responses", "--keep-blocked", "-j")
 	require.Equal(t, 0, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
 	doc := oneDoc(t, stdout, stderr)
 	assert.EqualValues(t, 2, doc["records_ingested"])

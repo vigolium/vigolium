@@ -77,6 +77,20 @@ type MergeOptions struct {
 	//   - projects and scans: copied as without a filter. They are run metadata
 	//     every copied row points at, not traffic or findings about a host.
 	Hosts []string
+
+	// Tags labels every record this merge writes (record_tags), replacing a
+	// value the source's own tags gave the same key. Records the destination
+	// already held are not written, so they are not tagged.
+	Tags []RecordTag
+
+	// RedactCredentials masks the credentials of every record and finding this
+	// merge writes (RedactRecordCredentials, RedactFindingCredentials), inside
+	// the merge's transaction: no unredacted copy is ever committed.
+	RedactCredentials bool
+
+	// RedactHeaders names further credential headers RedactCredentials masks
+	// (case-insensitive), beside the ones vigolium recognizes itself.
+	RedactHeaders []string
 }
 
 // recordBodyColumns are the http_records blob columns holding the raw
@@ -107,6 +121,17 @@ type MergeStats struct {
 	ObservationsMerged   int
 	StatusEventsMerged   int
 
+	// RecordsSkippedPresent counts source records the destination already
+	// held: skipped by uuid before their bodies were read.
+	RecordsSkippedPresent int
+	// RecordsTagged counts records MergeOptions.Tags labelled.
+	RecordsTagged int
+	// RecordsRedacted and FindingsRedacted count the written rows whose
+	// credentials MergeOptions.RedactCredentials masked (rows carrying none
+	// are not counted).
+	RecordsRedacted  int
+	FindingsRedacted int
+
 	// rekeyNeeded is set when findings were merged from a source below schema
 	// v6 (identity v2), so the destination must re-key them.
 	rekeyNeeded bool
@@ -128,6 +153,10 @@ func (s *MergeStats) Add(o *MergeStats) {
 	s.OASTMerged += o.OASTMerged
 	s.ObservationsMerged += o.ObservationsMerged
 	s.StatusEventsMerged += o.StatusEventsMerged
+	s.RecordsSkippedPresent += o.RecordsSkippedPresent
+	s.RecordsTagged += o.RecordsTagged
+	s.RecordsRedacted += o.RecordsRedacted
+	s.FindingsRedacted += o.FindingsRedacted
 }
 
 // mergeCopyTables lists the uuid-keyed result tables copied set-based with
@@ -240,6 +269,11 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 		return nil, err
 	}
 	defer release()
+	// The delta table is per connection and outlives the commit; the pooled
+	// connection must not carry it to its next user.
+	defer func() {
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "DROP TABLE IF EXISTS temp."+mergeNewRecordsTable)
+	}()
 
 	// A SQLite file with none of vigolium's tables merges as zeros, which read
 	// as a clean import of an empty store; it is refused instead.
@@ -348,9 +382,8 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 		}
 		var n int64
 		switch keyCol, keyed := targetURLKeyedTables[table]; {
-		case hosts.active() && table == "http_records":
-			pred, args := hosts.sqlPredicate("hostname", "port", "scheme")
-			n, err = copyTableWhere(ctx, tx, table, cols, pred, args)
+		case table == "http_records":
+			n, err = copyNewRecords(ctx, tx, cols, hosts, stats)
 		case hosts.active() && keyed:
 			n, err = copyTableKeys(ctx, tx, table, cols, keyCol, keptKeys[table])
 		default:
@@ -373,7 +406,7 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 
 	// findings: insert without id, dedup on (project_uuid, finding_hash), and
 	// build a src→dst id map so the junction and OAST rows can be relinked.
-	idMap, err := mergeFindings(ctx, tx, srcFindings, findingCols, stats)
+	idMap, newFindingIDs, err := mergeFindings(ctx, tx, srcFindings, findingCols, stats)
 	if err != nil {
 		return nil, fmt.Errorf("merge findings: %w", err)
 	}
@@ -396,6 +429,23 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 
 	if err := mergeFindingHashAliases(ctx, tx, srcAliases, aliasCols, idMap); err != nil {
 		return nil, fmt.Errorf("merge finding_hash_aliases: %w", err)
+	}
+
+	redactExtra := RedactHeaderSet(opts.RedactHeaders)
+	if !opts.SkipHTTPRecords {
+		if err := labelNewRecords(ctx, tx, opts.Tags, stats); err != nil {
+			return nil, err
+		}
+		if opts.RedactCredentials {
+			if stats.RecordsRedacted, err = redactMergedRecordsTx(ctx, tx, mergeNewRecordsTable, redactExtra); err != nil {
+				return nil, fmt.Errorf("redact merged records: %w", err)
+			}
+		}
+	}
+	if opts.RedactCredentials {
+		if stats.FindingsRedacted, err = redactMergedFindingsTx(ctx, tx, newFindingIDs, redactExtra); err != nil {
+			return nil, fmt.Errorf("redact merged findings: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -471,17 +521,21 @@ func copyValues(in []any) []any {
 // mergeFindings inserts each source finding into main.findings, deduping on
 // (project_uuid, finding_hash), and returns a map from the source finding id to
 // the destination finding id (whether freshly inserted or pre-existing).
-func mergeFindings(ctx context.Context, tx *sql.Tx, rows []bufferedRow, cols []string, stats *MergeStats) (map[int64]int64, error) {
+//
+// It also returns the destination ids of the findings it wrote (not the
+// deduped ones), for the redaction pass.
+func mergeFindings(ctx context.Context, tx *sql.Tx, rows []bufferedRow, cols []string, stats *MergeStats) (map[int64]int64, []int64, error) {
 	idMap := make(map[int64]int64, len(rows))
 	if len(rows) == 0 {
-		return idMap, nil
+		return idMap, nil, nil
 	}
+	var inserted []int64
 
 	idIdx := indexOf(cols, "id")
 	projIdx := indexOf(cols, "project_uuid")
 	hashIdx := indexOf(cols, "finding_hash")
 	if idIdx < 0 || projIdx < 0 || hashIdx < 0 {
-		return nil, fmt.Errorf("findings table missing id/project_uuid/finding_hash columns")
+		return nil, nil, fmt.Errorf("findings table missing id/project_uuid/finding_hash columns")
 	}
 
 	// Insert column list excludes the AUTOINCREMENT id; the destination assigns
@@ -521,22 +575,23 @@ func mergeFindings(ctx context.Context, tx *sql.Tx, rows []bufferedRow, cols []s
 			if lookupErr := tx.QueryRowContext(ctx,
 				"SELECT id FROM main.findings WHERE project_uuid = ? AND finding_hash = ?",
 				row[projIdx], row[hashIdx]).Scan(&existing); lookupErr != nil && !errors.Is(lookupErr, sql.ErrNoRows) {
-				return nil, lookupErr
+				return nil, nil, lookupErr
 			}
 			if existing.Valid {
 				idMap[srcID] = existing.Int64
 			}
 			stats.FindingsDeduped++
 		case err != nil:
-			return nil, err
+			return nil, nil, err
 		default:
 			if dstID.Valid {
 				idMap[srcID] = dstID.Int64
 				stats.FindingsMerged++
+				inserted = append(inserted, dstID.Int64)
 			}
 		}
 	}
-	return idMap, nil
+	return idMap, inserted, nil
 }
 
 // mergeFindingRecords copies the finding↔record junction, remapping the source
@@ -997,4 +1052,92 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// mergeNewRecordsTable is the per-connection temp table holding the uuids of
+// the source records a merge writes: the delta the tags, the source's own
+// record_tags and the redaction pass apply to.
+const mergeNewRecordsTable = "merge_new_records"
+
+// copyNewRecords copies the source http_records the destination does not
+// hold (narrowed by the host filter) and returns how many it wrote.
+//
+// The anti-join runs before any record is copied, over the uuid column alone:
+// a record the destination already holds is skipped without its row's
+// raw_request/raw_response being read, so re-importing a store that mostly
+// overlaps the destination costs index reads, not the corpus. The uuids it
+// wrote are left in temp.merge_new_records.
+func copyNewRecords(ctx context.Context, tx *sql.Tx, cols []string, hosts mergeHostFilter, stats *MergeStats) (int64, error) {
+	pred, args := "", []any(nil)
+	if hosts.active() {
+		pred, args = hosts.sqlPredicate("hostname", "port", "scheme")
+	}
+	scoped := func(cond string) string {
+		if pred == "" {
+			return cond
+		}
+		return "(" + pred + ") AND " + cond
+	}
+	if _, err := tx.ExecContext(ctx, "DROP TABLE IF EXISTS temp."+mergeNewRecordsTable); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, "CREATE TEMP TABLE "+mergeNewRecordsTable+" (uuid TEXT PRIMARY KEY)"); err != nil {
+		return 0, err
+	}
+	res, err := tx.ExecContext(ctx,
+		"INSERT INTO temp."+mergeNewRecordsTable+" (uuid) SELECT uuid FROM src.http_records WHERE "+
+			scoped("uuid NOT IN (SELECT uuid FROM main.http_records)"), args...)
+	if err != nil {
+		return 0, fmt.Errorf("select new records: %w", err)
+	}
+	newCount, _ := res.RowsAffected()
+	// Already present = every scoped source record minus the new ones, so the
+	// count needs no second anti-join probe against main.
+	var scopedCount int64
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(uuid) FROM src.http_records WHERE "+
+		scoped("1 = 1"), args...).Scan(&scopedCount); err != nil {
+		return 0, fmt.Errorf("count records already present: %w", err)
+	}
+	stats.RecordsSkippedPresent = int(scopedCount - newCount)
+	n, err := copyTableWhere(ctx, tx, "http_records", cols,
+		"uuid IN (SELECT uuid FROM temp."+mergeNewRecordsTable+")", nil)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// labelNewRecords carries the source's own record_tags for the records this
+// merge wrote, then applies tags over them (a tag given here replaces the
+// source's value for the same key).
+func labelNewRecords(ctx context.Context, tx *sql.Tx, tags []RecordTag, stats *MergeStats) error {
+	var srcHasTags int
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM src.sqlite_master WHERE type = 'table' AND name = 'record_tags'").Scan(&srcHasTags); err != nil {
+		return fmt.Errorf("inspect source record_tags: %w", err)
+	}
+	if srcHasTags > 0 {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT OR IGNORE INTO main.record_tags (record_uuid, key, value) "+
+				"SELECT record_uuid, key, value FROM src.record_tags WHERE record_uuid IN (SELECT uuid FROM temp."+mergeNewRecordsTable+")"); err != nil {
+			return fmt.Errorf("merge record_tags: %w", err)
+		}
+	}
+	if len(tags) == 0 {
+		return nil
+	}
+	for _, t := range tags {
+		// WHERE true: an upsert after INSERT … SELECT needs it, or SQLite reads
+		// ON CONFLICT as a join constraint.
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO main.record_tags (record_uuid, key, value) SELECT uuid, ?, ? FROM temp."+mergeNewRecordsTable+
+				" WHERE true ON CONFLICT (record_uuid, key) DO UPDATE SET value = excluded.value", t.Key, t.Value)
+		if err != nil {
+			return fmt.Errorf("tag merged records: %w", err)
+		}
+		if n, _ := res.RowsAffected(); int(n) > stats.RecordsTagged {
+			stats.RecordsTagged = int(n)
+		}
+	}
+	return nil
 }

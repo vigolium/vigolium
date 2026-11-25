@@ -440,8 +440,22 @@ func (r *HTTPRecord) PrepareIdentity(ctx *httpmsg.HttpRequestResponse) error {
 	// the enrichment half, which is where the record starts outliving its caller.
 	hash := sha256.Sum256(req.Raw())
 	r.RequestHash = hex.EncodeToString(hash[:])
+	r.RequestIdentityHash = requestIdentityHash(req.Header("Authorization"), req.Header("Cookie"))
 
 	return nil
+}
+
+// requestIdentityHash is the principal half of a body-less request's dedup
+// identity: a short SHA-256 of the Authorization and Cookie values, "" when
+// the request sent neither. Hashed rather than stored so the column never
+// holds a credential; the full values stay in raw_request, where they always
+// were.
+func requestIdentityHash(authorization, cookie string) string {
+	if authorization == "" && cookie == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte("authorization\x00" + authorization + "\x00cookie\x00" + cookie))
+	return hex.EncodeToString(sum[:16])
 }
 
 // EnrichFromHttpRequestResponse fills everything PrepareIdentity left out: the
@@ -525,6 +539,12 @@ func (r *HTTPRecord) EnrichFromHttpRequestResponse(ctx *httpmsg.HttpRequestRespo
 		r.ResponseTimeMs = httpmsg.MeasuredMillis(resp.Duration())
 
 		r.ReceivedAt = time.Now()
+	} else {
+		// First written without a response: a template, not an exchange.
+		// Only an insert reads this; the backfill and snapshot updates name
+		// their columns and never clear it.
+		at := time.Now()
+		r.RequestOnlyAtStore = &at
 	}
 
 	// Parameters
@@ -659,6 +679,7 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 	// finding lower (core.clampTentativeSeverity), so a reader can weigh the
 	// module's claim without the stored severity overstating the proof.
 	f.ClaimedSeverity = claimedSeverityFromMetadata(event.Metadata, f.Severity)
+	f.Principals = principalsFromMetadata(event.Metadata)
 
 	// Replay context for `finding verify` (see output.ResultEvent).
 	f.OriginRecordUUID = event.OriginRecordUUID
@@ -666,6 +687,7 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 		f.InsertionPoint = &FindingInsertionPoint{Type: event.InsertionPointType, Name: event.FuzzingParameter}
 	}
 	f.Payload = event.Payload
+	f.Proof = event.Proof
 
 	f.FindingHash = event.ID()
 	f.FoundAt = time.Now()
@@ -675,6 +697,21 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 	f.Status = StatusTriaged
 
 	return nil
+}
+
+// principalsFromMetadata returns the sessions a cross-session result compares,
+// primary first: Metadata["primary_session"] then Metadata["compare_session"].
+// Nil when the result names no compare session.
+func principalsFromMetadata(meta map[string]interface{}) []string {
+	compare, _ := meta["compare_session"].(string)
+	if strings.TrimSpace(compare) == "" {
+		return nil
+	}
+	primary, _ := meta["primary_session"].(string)
+	if strings.TrimSpace(primary) == "" {
+		return []string{"", compare}
+	}
+	return []string{primary, compare}
 }
 
 // claimedSeverityFromMetadata returns Metadata["claimed_severity"] when it

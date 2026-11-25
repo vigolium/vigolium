@@ -51,8 +51,9 @@ var (
 	// Juice Shop keeps per-path metrics and grows ~110 MB per 1k requests; at
 	// Node's default 4 GB heap a scan's discovery pass exhausts it, and then
 	// the run measures the app's leak instead of the scanner. 8 GB of heap
-	// keeps it standing through a full scan.
-	juiceShop = liveSpec{Name: "juice-shop", Image: "bkimminich/juice-shop:latest", Port: "3000", Ready: "/",
+	// keeps it standing through a full scan. Pinned to a release: `latest`
+	// follows the development snapshots, which the golden paths do not track.
+	juiceShop = liveSpec{Name: "juice-shop", Image: "bkimminich/juice-shop:v20.4.0", Port: "3000", Ready: "/",
 		Env: map[string]string{"NODE_OPTIONS": "--max-old-space-size=8192"}}
 	vampi = liveSpec{Name: "vampi", Image: "erev0s/vampi:latest", Port: "5000", Ready: "/",
 		Setup: func(t *testing.T, base string) {

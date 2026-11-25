@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -180,31 +181,36 @@ func TestOutcomeCodeValuesAreStable(t *testing.T) {
 		"login_budget":           ReasonLoginBudget,
 		"target_budget":          LimitTargetBudget,
 
-		"targets_out_of_scope":       ReasonTargetsOutOfScope,
-		"targets_unreachable":        ReasonTargetsUnreachable,
-		"oast_unavailable":           ReasonOASTUnavailable,
-		"request_budget":             ReasonRequestBudget,
-		"auth_lost":                  ReasonAuthLost,
-		"phase_error":                ReasonPhaseError,
-		"extensions_all_failed":      ReasonExtensionsAllFailed,
-		"abandoned":                  ReasonAbandoned,
-		"no_targets_in_scope":        ReasonNoTargetsInScope,
-		"no_targets_reachable":       ReasonNoTargetsReachable,
-		"host_request_budget":        LimitHostRequestBudget,
-		"js_request_cap":             LimitJSRequestCap,
-		"js_input_over_hard_limit":   LimitJSInputOverHardLimit,
-		"js_template_persist_cap":    LimitJSTemplatePersistCap,
-		"cdx_max_rows":               LimitCDXMaxRows,
-		"sitemap_cap":                LimitSitemapCap,
-		"responses_while_logged_out": LimitResponsesWhileLoggedOut,
-		"feedback_dropped":           ReasonFeedbackDropped,
-		"edge_blocked":               ReasonEdgeBlocked,
-		"browser_unavailable":        ReasonBrowserUnavailable,
-		"auth_unverified":            ReasonAuthUnverified,
-		"user_stopped":               ReasonUserStopped,
-		"findings_per_module":        LimitFindingsPerModule,
-		"throttled":                  LimitThrottled,
-		"rate_ceiling":               LimitRateCeiling,
+		"targets_out_of_scope":            ReasonTargetsOutOfScope,
+		"targets_unreachable":             ReasonTargetsUnreachable,
+		"oast_unavailable":                ReasonOASTUnavailable,
+		"request_budget":                  ReasonRequestBudget,
+		"auth_lost":                       ReasonAuthLost,
+		"phase_error":                     ReasonPhaseError,
+		"extensions_all_failed":           ReasonExtensionsAllFailed,
+		"abandoned":                       ReasonAbandoned,
+		"no_targets_in_scope":             ReasonNoTargetsInScope,
+		"no_targets_reachable":            ReasonNoTargetsReachable,
+		"host_request_budget":             LimitHostRequestBudget,
+		"js_request_cap":                  LimitJSRequestCap,
+		"js_input_over_hard_limit":        LimitJSInputOverHardLimit,
+		"js_template_persist_cap":         LimitJSTemplatePersistCap,
+		"cdx_max_rows":                    LimitCDXMaxRows,
+		"sitemap_cap":                     LimitSitemapCap,
+		"responses_while_logged_out":      LimitResponsesWhileLoggedOut,
+		"feedback_dropped":                ReasonFeedbackDropped,
+		"edge_blocked":                    ReasonEdgeBlocked,
+		"browser_unavailable":             ReasonBrowserUnavailable,
+		"auth_unverified":                 ReasonAuthUnverified,
+		"user_stopped":                    ReasonUserStopped,
+		"findings_per_module":             LimitFindingsPerModule,
+		"throttled":                       LimitThrottled,
+		"rate_ceiling":                    LimitRateCeiling,
+		"no_inputs":                       ReasonNoInputs,
+		"oast_disabled":                   LimitOASTDisabled,
+		"module_tier_capped":              LimitModuleTierCapped,
+		"risky_payloads_disabled":         LimitRiskyPayloadsDisabled,
+		"templates_skipped_unsafe_method": LimitTemplatesSkippedUnsafeMethod,
 	}
 	for literal, constant := range want {
 		if literal != constant {
@@ -337,6 +343,11 @@ func TestPhaseOutcomeBenignSkip(t *testing.T) {
 	}{
 		{"skipped with no reason", PhaseOutcome{State: PhaseSkipped}, true},
 		{"skipped for no_modules", PhaseOutcome{State: PhaseSkipped, Reasons: []string{ReasonNoModules}}, true},
+		// no_inputs is the plan working when the plan brought the phase along,
+		// and a gap when the operator named it.
+		{"skipped for no_inputs", PhaseOutcome{State: PhaseSkipped, Reasons: []string{ReasonNoInputs}}, true},
+		{"skipped for no_inputs, named", PhaseOutcome{State: PhaseSkipped, Reasons: []string{ReasonNoInputs}, Explicit: true}, false},
+		{"skipped for no_modules, named", PhaseOutcome{State: PhaseSkipped, Reasons: []string{ReasonNoModules}, Explicit: true}, true},
 		{"skipped by the budget", PhaseOutcome{State: PhaseSkipped, Reasons: []string{ReasonScanBudget}}, false},
 		{"skipped for several reasons", PhaseOutcome{State: PhaseSkipped, Reasons: []string{ReasonNoModules, ReasonCancelled}}, false},
 		{"completed", PhaseOutcome{State: PhaseCompleted}, false},
@@ -349,6 +360,24 @@ func TestPhaseOutcomeBenignSkip(t *testing.T) {
 		if got := tc.o.BenignSkip(); got != tc.want {
 			t.Errorf("%s: BenignSkip() = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// Merging two outcomes of one phase unions the modules each note removed and
+// keeps the phase explicit when either run was.
+func TestPhaseOutcomeMerge_NoteModulesAndExplicit(t *testing.T) {
+	a := PhaseOutcome{Phase: "dynamic-assessment", Notes: []string{LimitModuleTierCapped},
+		NoteModules: map[string][]string{LimitModuleTierCapped: {"b", "c"}}}
+	a.Merge(PhaseOutcome{Phase: "dynamic-assessment", Notes: []string{LimitModuleTierCapped, LimitRiskyPayloadsDisabled},
+		NoteModules: map[string][]string{LimitModuleTierCapped: {"a", "b"}, LimitRiskyPayloadsDisabled: {"r"}}, Explicit: true})
+	if got := a.NoteModules[LimitModuleTierCapped]; !slices.Equal(got, []string{"a", "b", "c"}) {
+		t.Errorf("module_tier_capped modules = %v", got)
+	}
+	if got := a.NoteModules[LimitRiskyPayloadsDisabled]; !slices.Equal(got, []string{"r"}) {
+		t.Errorf("risky_payloads_disabled modules = %v", got)
+	}
+	if !a.Explicit {
+		t.Error("explicit is kept across a merge")
 	}
 }
 

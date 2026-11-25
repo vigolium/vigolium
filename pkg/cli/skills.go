@@ -39,6 +39,7 @@ type skillsOptions struct {
 	Dir      string
 	Refs     []string
 	ListRefs bool
+	Profile  string
 }
 
 // bundledSkill is a parsed skill bundle shipped inside the binary.
@@ -149,6 +150,7 @@ func init() {
 	skillsGetCmd.Flags().BoolVar(&skillsOpts.All, "all", false, "Output every bundled skill")
 	skillsGetCmd.Flags().StringArrayVar(&skillsOpts.Refs, "ref", nil, "Print only this reference file: recipes, recipes.md or references/recipes.md (repeatable)")
 	skillsGetCmd.Flags().BoolVar(&skillsOpts.ListRefs, "list-refs", false, "List the skill's files (SKILL.md and references) with byte and line counts instead of printing them")
+	skillsGetCmd.Flags().StringVar(&skillsOpts.Profile, "profile", "", "Print a generated profile of vigolium-scanner instead of the bundle: embedded (the safe verb set and the contract pointer, stamped with this build)")
 	registerCommandSchema(contract.Command{Name: "skills get", Item: skillGetItem{},
 		Variants:    []contract.Variant{{Flag: "--list-refs", Item: skillFileView{}}},
 		Description: "One item per skill (its SKILL.md in content, references under --full), per reference with --ref, or per file with --list-refs."})
@@ -365,6 +367,9 @@ type skillReference struct {
 }
 
 func runSkillsGet(cmd *cobra.Command, names []string) error {
+	if skillsOpts.Profile != "" {
+		return runSkillsGetProfile(cmd, names)
+	}
 	skills, err := loadBundledSkills()
 	if err != nil {
 		return err
@@ -424,7 +429,7 @@ func runSkillsGet(cmd *cobra.Command, names []string) error {
 		if readErr != nil {
 			return fmt.Errorf("read %s: %w", b.Name, readErr)
 		}
-		writeBody(body)
+		writeBody(skillTextForSession(body))
 
 		if skillsOpts.Full {
 			for _, ref := range b.References {
@@ -433,10 +438,42 @@ func runSkillsGet(cmd *cobra.Command, names []string) error {
 					continue
 				}
 				fmt.Printf("\n\n----- %s/%s -----\n\n", b.Name, ref)
-				writeBody(refBody)
+				writeBody(skillTextForSession(refBody))
 			}
 		}
 	}
+	return nil
+}
+
+// skillTextForSession is skill markdown as this session may read it: under
+// VIGOLIUM_PINNED=1, without the lines naming what the pin refuses and with
+// the pin's note (pinnedSkillView); otherwise unchanged.
+func skillTextForSession(md []byte) []byte {
+	if !pinnedEnv() {
+		return md
+	}
+	return []byte(pinnedSkillView(string(md)))
+}
+
+// runSkillsGetProfile answers `skills get vigolium-scanner --profile <name>`.
+func runSkillsGetProfile(cmd *cobra.Command, names []string) error {
+	if skillsOpts.Profile != skillProfileEmbedded {
+		return usageErrorf("skills get: unknown --profile %q (want: %s)", skillsOpts.Profile, skillProfileEmbedded)
+	}
+	if skillsOpts.Full || skillsOpts.All || skillsOpts.ListRefs || len(skillsOpts.Refs) > 0 {
+		return usageErrorf("skills get: --profile prints one generated document; drop --full, --all, --ref and --list-refs")
+	}
+	if len(names) != 1 || names[0] != defaultInstallSkill {
+		return usageErrorf("skills get: --profile %s is a profile of %s: vigolium skills get %s --profile %s",
+			skillsOpts.Profile, defaultInstallSkill, defaultInstallSkill, skillsOpts.Profile)
+	}
+	content := embeddedSkillProfile(rootCmd)
+	if globalJSON {
+		item := skillGetItem{Name: defaultInstallSkill, Description: "embedded profile, generated from this build",
+			EmbedPath: "profile:" + skillProfileEmbedded, Content: content}
+		return emitRead(cmd, "", []skillGetItem{item}, 1, 0, 1)
+	}
+	writeBody([]byte(content))
 	return nil
 }
 
@@ -450,7 +487,7 @@ func emitSkillsGetJSON(cmd *cobra.Command, targets []bundledSkill) error {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", b.Name, err)
 		}
-		item := skillGetItem{Name: b.Name, Description: b.Description, EmbedPath: b.EmbedDir, Content: string(body)}
+		item := skillGetItem{Name: b.Name, Description: b.Description, EmbedPath: b.EmbedDir, Content: string(skillTextForSession(body))}
 		if skillsOpts.Full {
 			item.References = []skillReference{}
 			for _, ref := range b.References {
@@ -458,7 +495,7 @@ func emitSkillsGetJSON(cmd *cobra.Command, targets []bundledSkill) error {
 				if refErr != nil {
 					continue
 				}
-				item.References = append(item.References, skillReference{Path: ref, Content: string(refBody)})
+				item.References = append(item.References, skillReference{Path: ref, Content: string(skillTextForSession(refBody))})
 			}
 		}
 		items = append(items, item)
@@ -776,7 +813,7 @@ func emitSkillRefs(cmd *cobra.Command, targets []bundledSkill, refs []string) er
 			if err != nil {
 				return fmt.Errorf("read %s/%s: %w", b.Name, path, err)
 			}
-			items = append(items, skillGetItem{Name: b.Name, Description: b.Description, EmbedPath: b.EmbedDir, Path: path, Content: string(body)})
+			items = append(items, skillGetItem{Name: b.Name, Description: b.Description, EmbedPath: b.EmbedDir, Path: path, Content: string(skillTextForSession(body))})
 		}
 	}
 	if globalJSON {

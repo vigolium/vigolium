@@ -90,6 +90,7 @@ const (
 	ReasonCancelled            = "cancelled"              // Ctrl-C / caller cancellation
 	ReasonError                = "error"                  // the phase returned an error
 	ReasonNoModules            = "no_modules"             // nothing to execute
+	ReasonNoInputs             = "no_inputs"              // the phase admitted zero inputs: it had modules and nothing to run them on
 	ReasonDrainStalled         = "drain_stalled"          // feedback drain abandoned with workers in flight
 	ReasonWorkersAbandoned     = "workers_abandoned"      // workers did not exit within the shutdown grace
 	ReasonDeferredFlushSkipped = "deferred_flush_skipped" // passive flush skipped after abandoning workers
@@ -131,6 +132,19 @@ const (
 	LimitFindingsPerModule       = "findings_per_module"        // --max-findings-per-module dropped findings (see PhaseOutcome.FindingsCapped)
 	LimitThrottled               = "throttled"                  // a host throttled (429/503 Retry-After) module traffic
 	LimitRateCeiling             = "rate_ceiling"               // VIGOLIUM_RATE_CEILING lowered a rate or concurrency dial (a phase note)
+
+	// Disabled capabilities: configuration that kept checks out of the run.
+	// Phase notes (PhaseOutcome.Notes, the modules each removed in
+	// PhaseOutcome.NoteModules), so they are caveats and never make a phase
+	// partial: the run did what it was configured to do.
+	LimitOASTDisabled          = "oast_disabled"           // oast.enabled is off (or --offline): out-of-band checks were not planted
+	LimitModuleTierCapped      = "module_tier_capped"      // --max-module-tier / dynamic-assessment.max_module_tier removed modules
+	LimitRiskyPayloadsDisabled = "risky_payloads_disabled" // risk:high modules were withheld (no --allow-risky-payloads)
+	// LimitTemplatesSkippedUnsafeMethod: stored write templates (a method
+	// other than GET/HEAD/OPTIONS, first stored without a response) the
+	// dynamic assessment did not send (no --allow-writes). Counts["…"] holds
+	// how many.
+	LimitTemplatesSkippedUnsafeMethod = "templates_skipped_unsafe_method"
 )
 
 // OutcomeCodes lists every reason and limit code exactly once. It exists so a
@@ -142,6 +156,7 @@ var OutcomeCodes = []string{
 	ReasonCancelled,
 	ReasonError,
 	ReasonNoModules,
+	ReasonNoInputs,
 	ReasonDrainStalled,
 	ReasonWorkersAbandoned,
 	ReasonDeferredFlushSkipped,
@@ -180,6 +195,10 @@ var OutcomeCodes = []string{
 	LimitFindingsPerModule,
 	LimitThrottled,
 	LimitRateCeiling,
+	LimitOASTDisabled,
+	LimitModuleTierCapped,
+	LimitRiskyPayloadsDisabled,
+	LimitTemplatesSkippedUnsafeMethod,
 }
 
 // ResolvePhaseState turns the three things a phase tracker observes into a state.
@@ -215,9 +234,17 @@ type PhaseOutcome struct {
 	// not reduce its coverage verdict (the public default OAST server being
 	// unreachable): reported as caveats, never as a partial phase. Sorted,
 	// unique.
-	Notes   []string `json:"notes,omitempty"`
-	Errors  int      `json:"errors,omitempty"`
-	Message string   `json:"message,omitempty"` // first error, truncated
+	Notes []string `json:"notes,omitempty"`
+	// NoteModules names, per note code, the module ids that note removed from
+	// the run (module_tier_capped, risky_payloads_disabled), sorted. Absent
+	// for a note that names no module.
+	NoteModules map[string][]string `json:"note_modules,omitempty"`
+	// Explicit says the operator selected this phase by name (--only, `run
+	// <phase>`). A phase asked for by name that found nothing to work on is a
+	// gap in what was asked, not the plan working (BenignSkip).
+	Explicit bool   `json:"explicit,omitempty"`
+	Errors   int    `json:"errors,omitempty"`
+	Message  string `json:"message,omitempty"` // first error, truncated
 	// Unprocessed counts work items the executor dequeued but did not process —
 	// deliberately NOT acknowledged, so a later run re-serves them.
 	Unprocessed int64               `json:"unprocessed,omitempty"`
@@ -290,12 +317,21 @@ type PhaseProgress struct {
 // The state check is part of the rule. A phase that FAILED without recording a
 // reason is not a benign skip; it is the most serious thing that can happen to
 // a phase, reported with no explanation.
+//
+// no_inputs (a phase that had modules and nothing to run them on) is benign
+// only when the plan brought the phase along: a default scan of a target with
+// no stored traffic skips dynamic assessment by design. When the operator
+// named the phase (Explicit), an assessment that assessed nothing is exactly
+// the outcome they need to see, so it counts against coverage.
 func (o PhaseOutcome) BenignSkip() bool {
 	if o.State != PhaseSkipped {
 		return false
 	}
 	for _, reason := range o.Reasons {
-		if reason != ReasonNoModules {
+		switch {
+		case reason == ReasonNoModules:
+		case reason == ReasonNoInputs && !o.Explicit:
+		default:
 			return false
 		}
 	}
@@ -329,6 +365,13 @@ func (o *PhaseOutcome) Merge(b PhaseOutcome) {
 	o.Reasons = mergeCodes(o.Reasons, b.Reasons)
 	o.Limits = mergeCodes(o.Limits, b.Limits)
 	o.Notes = mergeCodes(o.Notes, b.Notes)
+	for code, ids := range b.NoteModules {
+		if o.NoteModules == nil {
+			o.NoteModules = make(map[string][]string, len(b.NoteModules))
+		}
+		o.NoteModules[code] = mergeCodes(o.NoteModules[code], ids)
+	}
+	o.Explicit = o.Explicit || b.Explicit
 	o.Errors += b.Errors
 	if o.Message == "" {
 		o.Message = b.Message

@@ -129,12 +129,20 @@ func startJuiceShop(t *testing.T) *VulnerableApp {
 	t.Cleanup(cancel)
 
 	app, err := StartContainer(ctx, ContainerConfig{
-		Image:       "bkimminich/juice-shop:latest",
+		Image:       juiceShopImage,
 		ExposedPort: "3000/tcp",
 		WaitStrategy: wait.ForHTTP("/").
 			WithPort("3000").
 			WithStartupTimeout(120 * time.Second),
 		ReadyEndpoint: "/",
+		// Juice Shop keeps per-path metrics and grows ~110 MB per 1k requests,
+		// so a long scan can exhaust it. Cap the container: a Juice Shop that
+		// grows unbounded inside the Docker VM stalls every later container
+		// start in the suite (container start: context deadline exceeded). The
+		// heap stays under the cap so Node fails as an OOM, not a kernel kill
+		// mid-GC; the scan tests skip when the target dies (skipIfTargetDied).
+		Env:         map[string]string{"NODE_OPTIONS": "--max-old-space-size=8192"},
+		MemoryBytes: 10 << 30,
 	})
 	require.NoError(t, err, "Failed to start Juice Shop container")
 	t.Cleanup(func() { _ = app.Stop() })
@@ -256,6 +264,7 @@ func TestScanRunner_JuiceShop_FullPipeline(t *testing.T) {
 	r, db, repo := newScanRunner(t, opts)
 
 	err := r.RunNativeScan()
+	skipIfTargetDied(t, err, opts.Targets[0])
 	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: HTTP records were ingested

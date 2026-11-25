@@ -109,6 +109,10 @@ type agentViewOptions struct {
 	// redact masks credentials in the raw views (json_redact.go): header
 	// values, cookie values and sensitive query parameters. Bodies are kept.
 	redact bool
+
+	// recordTags are the record_tags labels of the rendered records, keyed by
+	// record uuid; nil when the view did not load them.
+	recordTags map[string]map[string]string
 }
 
 // withHostFacts returns a copy of opts that serves host facts from a run's
@@ -128,6 +132,26 @@ func (o agentViewOptions) withNotFound(ctx context.Context, db *database.DB, pro
 	if wantsField(o.fields, "matches_not_found") {
 		o.notFound = newNotFoundMatcher(ctx, db, projectUUID)
 	}
+	return o
+}
+
+// withRecordTags returns a copy of opts that renders each record's
+// record_tags labels as tags. A failed read leaves the rows without them and
+// says so on stderr.
+func (o agentViewOptions) withRecordTags(ctx context.Context, db *database.DB, records []*database.HTTPRecord) agentViewOptions {
+	if db == nil || len(records) == 0 {
+		return o
+	}
+	uuids := make([]string, 0, len(records))
+	for _, r := range records {
+		uuids = append(uuids, r.UUID)
+	}
+	tags, err := database.LoadRecordTags(ctx, db, uuids)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s record tags could not be loaded: %v\n", terminal.WarnPrefix(), err)
+		return o
+	}
+	o.recordTags = tags
 	return o
 }
 
@@ -638,14 +662,16 @@ var (
 		// 8-character prefix (record_ref.go), response_headers the response's
 		// header block without its body.
 		"uuid_short", "response_headers", "matches_not_found",
+		// Present on a record carrying record_tags labels (`import --tag`).
+		"tags",
 	}, database.HostFactsFieldNames...)
 	findingViewFields = []string{
 		"id", "finding_hash", "severity", "confidence", "module_id", "module_name", "module_type",
 		"finding_source", "record_kind", "evidence_grade", "short", "description",
 		"url", "hostname", "matched_at", "extracted_results", "additional_evidence",
-		"tags", "cwe_id", "vuln_class", "claimed_severity", "cvss_score", "remediation", "status", "status_note", "status_actor", "scan_uuid",
+		"tags", "principals", "cwe_id", "vuln_class", "claimed_severity", "cvss_score", "remediation", "status", "status_note", "status_actor", "scan_uuid",
 		"agentic_scan_uuid", "repo_name", "source_file", "found_at",
-		"http_record_uuids", "origin_record_uuid", "insertion_point", "payload", "verification", "verified_at",
+		"http_record_uuids", "origin_record_uuid", "insertion_point", "payload", "proof", "verification", "verified_at",
 		"response_evidence", "request", "response",
 		"records", "records_total", "records_truncated", "records_error",
 	}
@@ -788,6 +814,10 @@ func compactRecordView(rec *database.HTTPRecord, opts agentViewOptions) map[stri
 	if rec.ResponseDecodedFrom != "" {
 		m["response_decoded_from"] = rec.ResponseDecodedFrom
 	}
+	// Present only on a record carrying caller labels (`import --tag`).
+	if tags := opts.recordTags[rec.UUID]; len(tags) > 0 {
+		m["tags"] = tags
+	}
 
 	// Opt-in keys: computed only when asked for, so a default row pays nothing.
 	if wantsField(opts.fields, "uuid_short") {
@@ -883,6 +913,10 @@ func compactFindingView(f *database.Finding, records []*database.HTTPRecord, opt
 	if f.ClaimedSeverity != "" {
 		m["claimed_severity"] = f.ClaimedSeverity
 	}
+	// The sessions a cross-session finding compares, the primary first.
+	if len(f.Principals) > 0 {
+		m["principals"] = f.Principals
+	}
 	if f.CVSSScore != 0 {
 		m["cvss_score"] = f.CVSSScore
 	}
@@ -924,6 +958,10 @@ func compactFindingView(f *database.Finding, records []*database.HTTPRecord, opt
 	}
 	if f.Payload != "" {
 		m["payload"] = f.Payload
+	}
+	// The module's decision as a replayable recipe (`vigolium schema proof`).
+	if f.Proof != nil {
+		m["proof"] = f.Proof
 	}
 	if f.Verification != nil {
 		m["verification"] = f.Verification

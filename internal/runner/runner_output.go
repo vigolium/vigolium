@@ -14,6 +14,7 @@ import (
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	corestats "github.com/vigolium/vigolium/pkg/core/stats"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/deparos/waf"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -64,11 +65,6 @@ func (r *Runner) echoLiveFinding(phaseTag string, result *output.ResultEvent) {
 	fmt.Fprint(os.Stderr, line)
 }
 
-// FormatBlockNoticeLine renders the one-line WAF/CDN block warning (with a
-// trailing newline) shown when the edge starts filtering scan traffic. It is
-// shared by every scan front-end so the message and the "unrecognized vendor"
-// fallback stay identical whether the scan runs through the Runner or the direct
-// scan-url/scan-request path.
 // NoticeMarkerBlock and NoticeMarkerPacing are the bracketed tags the two
 // operator notices are rendered with. Exported because a reader has to find them
 // again in a rendered log (`vigolium log` reprints any that fell above the tail
@@ -79,10 +75,19 @@ const (
 	NoticeMarkerPacing = "[waf-pacing-armed]"
 )
 
+// FormatBlockNoticeLine renders the one-line WAF/CDN block warning (with a
+// trailing newline) shown when the edge starts filtering scan traffic. It is
+// shared by every scan front-end so the message and the "unnamed refusal"
+// wording stay identical whether the scan runs through the Runner or the direct
+// scan-url/scan-request path.
 func FormatBlockNoticeLine(n http.BlockNotice) string {
 	vendor := n.WAFType
-	if vendor == "" || vendor == "generic" {
-		vendor = "WAF/CDN"
+	switch n.Kind {
+	case waf.KindRefused:
+		// The generic phrase rule names no edge.
+		vendor = "unnamed refusal"
+	case waf.KindChallenge:
+		vendor += " challenge"
 	}
 	return fmt.Sprintf("%s %s %s %s %s %s\n",
 		terminal.BoldYellow(terminal.SymbolWarning),

@@ -318,7 +318,7 @@ func (c *SpideringConfig) Validate() error {
 		}
 		re, err := regexp.Compile("(?i)" + p)
 		if err != nil {
-			return fmt.Errorf("spidering.deny_click_extra[%d] is not a valid regex (%q): %v", i, p, err)
+			return fmt.Errorf("spidering.deny_click_extra[%d] is not a valid regex (%q): %w", i, p, err)
 		}
 		// A pattern that matches the empty string matches every control's
 		// text, so the crawl would refuse to click anything and the POST-form

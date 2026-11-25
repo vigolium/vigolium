@@ -111,26 +111,31 @@ func withPaceKnob(t *testing.T, knob *paceKnob, phase string, value int) {
 	})
 }
 
-func TestApplyPhasePaceOverridesWarnsOnUnenforcedField(t *testing.T) {
+// A config value the phase does not enforce keeps running with a warning and
+// is reported as pace_ignored, source config; the command-line spelling of the
+// same pair is refused before the scan (TestRefuseUnboundPaceFlags).
+func TestApplyPhasePaceOverridesWarnsOnUnenforcedConfigValue(t *testing.T) {
 	opts := paceTestOptions()
 	settings := &config.Settings{ScanningPace: *config.DefaultScanningPaceConfig()}
-
-	// Spidering has no limiter at all: this value parsed, was stored, and was
-	// printed as effective while changing nothing.
-	withPaceKnob(t, rateLimitKnob, "spidering", 5)
+	// Spidering has no limiter at all: the value is inert.
+	settings.ScanningPace.Spidering.RateLimit = 5
 
 	out := captureStderr(t, func() { applyPhasePaceOverrides(settings, opts) })
 
-	if !strings.Contains(out, "spidering") || !strings.Contains(out, "not enforced") {
-		t.Fatalf("expected a not-enforced warning naming the phase, got %q", out)
+	if !strings.Contains(out, "spidering") || !strings.Contains(out, "not enforced") ||
+		!strings.Contains(out, config.PaceFieldRateLimit) {
+		t.Fatalf("expected a not-enforced warning naming the phase and field, got %q", out)
 	}
-	if !strings.Contains(out, config.PaceFieldRateLimit) {
-		t.Fatalf("the warning must name the field, got %q", out)
+	got := configPaceIgnored(settings, opts)
+	if len(got) != 1 || got[0].Phase != "spidering" || got[0].Dial != config.PaceFieldRateLimit || got[0].Source != "config" {
+		t.Fatalf("pace_ignored = %+v, want one spidering rate_limit from config", got)
 	}
-	// The value is still recorded: the operator typed it, and a release that
-	// teaches the phase to read it should not need the flag typed again.
-	if got := settings.ScanningPace.Spidering.RateLimit; got != 5 {
-		t.Fatalf("spidering.rate_limit = %d, want 5 (warned, not dropped)", got)
+
+	// A phase this scan does not run is not reported: nothing would read it
+	// whether or not the phase enforced it.
+	opts.SpideringEnabled = false
+	if got := configPaceIgnored(settings, opts); len(got) != 0 {
+		t.Fatalf("pace_ignored for a phase that does not run = %+v", got)
 	}
 }
 

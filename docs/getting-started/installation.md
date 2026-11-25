@@ -224,8 +224,10 @@ channel's publishing setup.
 
 ## Where Vigolium stores data
 
-Everything lives under `~/.vigolium/` (override with the `VIGOLIUM_HOME`
-environment variable):
+Everything lives under `~/.vigolium/`. `VIGOLIUM_STATE_DIR` moves it, along
+with the caches (`~/.cache/vigolium`), `~/nuclei-templates` and the embedded
+nuclei libraries' config directories, under one directory of your choosing
+(see [Configuration](../configuration.md)):
 
 | Path | Contents |
 |------|----------|

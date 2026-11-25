@@ -1920,6 +1920,7 @@
               "not_ready",
               "out_of_scope",
               "output_too_large",
+              "pace_unsupported",
               "partial",
               "payload_too_large",
               "pdf_failed",
@@ -1931,6 +1932,7 @@
               "queue_full",
               "rate_limited",
               "record_not_found",
+              "refused_by_policy",
               "resume_mismatch",
               "scan_abandoned",
               "scan_not_found",
@@ -1999,6 +2001,7 @@
               "not_ready",
               "out_of_scope",
               "output_too_large",
+              "pace_unsupported",
               "partial",
               "payload_too_large",
               "pdf_failed",
@@ -2010,6 +2013,7 @@
               "queue_full",
               "rate_limited",
               "record_not_found",
+              "refused_by_policy",
               "resume_mismatch",
               "scan_abandoned",
               "scan_not_found",
@@ -2323,8 +2327,128 @@
           "payload": {
             "type": "string"
           },
+          "principals": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "project_uuid": {
             "type": "string"
+          },
+          "proof": {
+            "nullable": true,
+            "properties": {
+              "control": {
+                "properties": {
+                  "baseline_record_uuid": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  },
+                  "headers": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "insertion_point": {
+                    "nullable": true,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "method": {
+                    "type": "string"
+                  },
+                  "payload_template": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "oracle": {
+                "properties": {
+                  "header": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "min_delta_ms": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "repeat": {
+                    "type": "integer"
+                  },
+                  "threshold": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "preconditions": {
+                "properties": {
+                  "method_safe": {
+                    "type": "boolean"
+                  },
+                  "principal": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "request": {
+                "properties": {
+                  "body": {
+                    "type": "string"
+                  },
+                  "headers": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "insertion_point": {
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "method": {
+                    "type": "string"
+                  },
+                  "payload_template": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
           },
           "record_kind": {
             "type": "string"
@@ -2558,6 +2682,14 @@
               "type": "array"
             },
             "type": "object"
+          },
+          "request_identity_hash": {
+            "type": "string"
+          },
+          "request_only_at_store": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
           },
           "response_body": {
             "description": "Response body (detail view only)",
@@ -3652,6 +3784,9 @@
             ],
             "type": "string"
           },
+          "cidr": {
+            "$ref": "#/components/schemas/ScopeRule"
+          },
           "cli_origin_mode": {
             "description": "Restrict hosts by the CLI target origin",
             "enum": [
@@ -3696,6 +3831,9 @@
             "type": "array"
           },
           "path": {
+            "$ref": "#/components/schemas/ScopeRule"
+          },
+          "port": {
             "$ref": "#/components/schemas/ScopeRule"
           },
           "request_content_type": {

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/internal/config"
-	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/scanplan"
@@ -128,27 +127,6 @@ func TestScanDryRunHasNoSideEffects(t *testing.T) {
 	require.NotNil(t, doc.Plan.Targets.DBRecordsInScope)
 	assert.Positive(t, doc.Plan.Estimate.High)
 	assert.Equal(t, scanplan.ConfidenceRough, doc.Plan.Estimate.Confidence)
-}
-
-// TestScanDryRunNoTargetsInScope: the same rule as a real scan — every seeded
-// target refused by scope is exit 1, error.code no_targets_in_scope.
-func TestScanDryRunNoTargetsInScope(t *testing.T) {
-	if testing.Short() {
-		t.Skip("re-execs the CLI")
-	}
-	srv, hits := countingServer(t)
-	home := a3Home(t, "nomatch.example")
-
-	code, stdout, stderr := runA3(t, home, "scan", "-t", srv.URL+"/", "--dry-run", "-j")
-	require.Equal(t, 1, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
-	assert.Equal(t, string(apicontract.CodeNoTargetsInScope), errorCode(t, stdout))
-	assert.Zero(t, hits.Load())
-
-	// Human form: the plan is printed, then the error.
-	code, stdout, stderr = runA3(t, home, "scan", "-t", srv.URL+"/", "--dry-run")
-	require.Equal(t, 1, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
-	assert.Contains(t, stdout, "no_targets_in_scope")
-	assert.Contains(t, stdout, "off: scope")
 }
 
 // TestRunPhaseDryRun: `run <phase> --dry-run` plans the one phase.

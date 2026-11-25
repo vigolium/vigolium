@@ -186,6 +186,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		for _, mod := range activeModules {
 			if ac, ok := mod.(*authz_compare.Module); ok {
 				ac.SetCompareClients(clients, names, hostnames)
+				ac.SetPrimaryName(infra.primarySessionName)
 				break
 			}
 		}
@@ -252,8 +253,9 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	ctx, phaseCancel = r.trackedPhaseDeadline(ctx, daMaxDuration)
 	defer phaseCancel()
 
-	// Reset cursor so dynamic-assessment reads all records from the beginning
-	// (seed phase advances the cursor past all records when saving them).
+	// Rewind the cursor so dynamic-assessment reads every record from where the
+	// scan started — the beginning, or the --only-new-since floor — (the seed
+	// phase advances the cursor past all records when saving them).
 	// Skip reset for scan-on-receive — the cursor tracks which records have been scanned.
 	// A resumed scan (--resume-scan) keeps its cursor: the ledger already says
 	// which records are done, and resetting would re-serve the whole window.
@@ -325,6 +327,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		DeepScan:             strings.EqualFold(r.options.Intensity, "deep"),
 		ExternalFetcher:      r.externalFetcher(),
 		AllowRiskyPayloads:   r.riskyPayloadsAllowed(),
+		AllowWrites:          r.options.AllowWrites,
 		NoParamDedup:         r.options.NoParamDedup,
 		HeaderPointsAll:      r.headerPointsAll(),
 		ModuleTimeouts:       &phaseModuleTimeouts,
@@ -658,6 +661,12 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		roundsRun   int
 		roundErr    error
 		deadlineHit bool
+		// admitted is the inputs every round processed, and stopped says a
+		// round ended the loop on a failed checkpoint: a phase that admitted
+		// nothing, and was not cut short, did no work and says so
+		// (skipped/no_inputs) rather than completing.
+		admitted int64
+		stopped  bool
 	)
 	for round := 0; round < feedbackRounds; round++ {
 		res, err := r.runDynamicAssessmentRound(ctx, infra, round, inScopeHosts, activeModules, passiveModules, baseExecutorCfg, oastService, ledger)
@@ -673,9 +682,11 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		// instead of burning the remaining rounds on repeated work; the phase is
 		// already marked partial, so the shortfall is reported rather than hidden.
 		if res.checkpointFailed {
+			stopped = true
 			break
 		}
 		processed := res.processed
+		admitted += processed
 
 		// Deduplicate findings after each dynamic-assessment round, scoped to the
 		// hosts being scanned. DA runs before known-issue-scan and only scans
@@ -719,6 +730,10 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 					terminal.TipPrefix(), terminal.Gray("enable multi-round scanning via"), terminal.Cyan("vigolium config set dynamic-assessment.max_feedback_rounds 3"))
 			}
 		}
+	}
+
+	if admitted == 0 && roundErr == nil && !deadlineHit && !stopped && ctx.Err() == nil {
+		r.currentPhase.Load().markSkipped(database.ReasonNoInputs)
 	}
 
 	elapsed := time.Since(phaseStart)
@@ -772,7 +787,8 @@ func (r *Runner) newDASource(infra *phaseInfra, inScopeHosts []database.HostTarg
 		WithHostScopes(inScopeHosts).
 		WithRecordUUIDs(r.options.RecordUUIDs).
 		WithRunFilter(r.runRecordFilter(context.Background(), infra.scanUUID)).
-		WithParamShapeCoalescing(r.daParamShapeSamples())
+		WithParamShapeCoalescing(r.daParamShapeSamples()).
+		WithAllowWrites(r.options.AllowWrites)
 }
 
 // runDAPass runs one executor over dbSource: one feedback round, or one tier
@@ -797,6 +813,7 @@ func (r *Runner) runDAPass(
 	_, err := executor.Execute(ctx)
 	tracker := r.currentPhase.Load()
 	tracker.noteExecution(executor.Report())
+	tracker.noteWriteTemplatesSkipped(dbSource.SkippedUnsafeMethod() + executor.WriteTemplatesSkipped())
 	res.moduleMetrics = executor.ModuleMetrics()
 
 	// Checkpoint the round's cursor, with a reported result.

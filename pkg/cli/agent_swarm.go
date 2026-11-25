@@ -409,7 +409,7 @@ func runAgentSwarm(cmd *cobra.Command, args []string) (err error) {
 	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
-	if err := db.CreateSchema(ctx); err != nil {
+	if err := db.EnsureSchemaReady(ctx); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 	repo := database.NewRepository(db)

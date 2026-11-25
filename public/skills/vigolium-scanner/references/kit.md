@@ -255,13 +255,15 @@ vigolium kit param-mine -t https://target.example/login -X POST -d 'user=a' -j
 vigolium kit param-mine -t https://target.example/api -X POST \
     -H 'Content-Type: application/json' -d '{"id":1}'
 vigolium kit param-mine -t https://target.example/ -w names.txt --max-requests 200
+vigolium kit param-mine -t https://target.example/admin --location header -j
+vigolium kit param-mine -t https://target.example/admin --location cookie -H 'Cookie: session=abc' -j
 ```
 
 | Flag | Default | Effect |
 |------|---------|--------|
 | `-t/--target` | — | endpoint URL (or the positional argument) |
 | `-X/--method`, `-d/--data`, `-H/--header` | `GET` | the base request; names are added to it |
-| `--location` | `auto` | `query`, `form`, `json`; auto = query for GET/HEAD/DELETE, else the body's encoding |
+| `--location` | `auto` | `query`, `form`, `json`, `header`, `cookie`; auto = query for GET/HEAD/DELETE, else the body's encoding. `header` mines request header names (built-in list `kit wordlist headers`; framing, routing and session headers never mined); `cookie` mines cookie names, each joined to the request's `Cookie` header beside the cookies it already sends (a session cookie is never replaced; the whole header stays under 6 KiB). Neither is ever chosen by `auto` |
 | `-w/--wordlist` | — | names file(s) tried before the built-in list (`kit wordlist params`, ~1.8k); `--no-builtin` drops it |
 | `--max-requests` | `60` | per-run budget, baselines and confirmations included |
 | `--rate-limit` / `--timeout` | `20` rps / `15s` | pacing; the global `--proxy` applies |
@@ -345,13 +347,22 @@ vigolium kit unlock-walk --profile unlock.json --origin https://app.target.examp
  "localStorage": {"token": "x"}, "sessionStorage": {}, "cookies": [{"name": "s", "value": "1"}],
  "stubs": [{"method": "GET", "path": "/api/me", "status": 200,
             "contentType": "application/json", "body": "{\"role\":\"admin\"}"}],
- "routes": ["/admin", "/admin/users"], "maxRoutes": 40, "settleMs": 2500}
+ "rewrites": [{"method": "GET", "path": "/api/menu", "status": 200,
+               "set": [{"pointer": "/data/isAdmin", "value": true}]}],
+ "routes": ["/admin", "/admin/users"], "maxRoutes": 40, "settleMs": 2500, "maxClicksPerRoute": 6}
 ```
 
 The profile's JSON Schema is the `unlock-profile` document in `vigolium schema all -j`. A stub path is exact or a
 template (`/api/users/:id`, `/api/{tenant}/x`; one segment per parameter, the
-query is not matched), status 2xx/4xx/5xx, body ≤ 64 KiB. `maxRoutes` defaults
-to 40 (cap 200), `settleMs` to 2500 (cap 10000).
+query is not matched), status 2xx/4xx/5xx, body ≤ 64 KiB. A rewrite matches the
+same way (a stub wins) and changes the REAL answer: `status` (absent keeps it)
+and/or ≤ 20 `set` entries, an RFC 6901 `pointer` (never `""`) and a JSON
+`value` (≤ 64 KiB together; replace or add a member, `-` appends). All or none:
+an answer not JSON, over 4 MiB or missing a container passes unchanged.
+`maxRoutes` 40 (cap 200), `settleMs` 2500 (cap 10000), `maxClicksPerRoute` 6
+(cap 30, 0 off). Stub a bootstrap answer (who am I, role, permission tree);
+rewrite a data answer the view renders from real content with one field changed
+(a menu missing its admin entry). Never fabricate data a report would read.
 
 | Flag | Effect |
 |------|--------|
@@ -367,19 +378,29 @@ What it guarantees:
 - **Stubs are confined.** Only requests on the profile's origin can match; a
   stub off the origin refuses the profile (exit 2, nothing launched). A stubbed
   response is answered in the browser, never stored, never listed as a request.
+- **Rewritten answers are never evidence.** The request is sent (same method
+  gate), never stored nor listed as a request; `rewrites_hit` reports it
+  (`upstream_status`, `status`, `applied`, `error`), `rewrites_never_hit` the rest.
 - **Writes are recorded, not sent.** Every non-GET/HEAD/OPTIONS request is
   failed in the browser and listed in `aborted_writes` by shape (method, URL,
   header names, body clipped to 8 KiB).
+- **Clicks are bounded.** Per rendered route: the first search, filter, view,
+  edit and export control, then tabs and links, never one the destructive-label
+  guard refuses (delete, logout, approve, …: `clicks_skipped_destructive`,
+  `skipped_controls`). Click requests pass the same gate (`via: "click"`). Under
+  `--allow-writes` nothing is clicked (`clicks_refused: "writes_allowed"`).
 - **Real exchanges are stored** as traffic, source `unlock-walk`, remark
   `client-unlocked` on a new row (the request is real, the page state was
   forged). Off-origin exchanges are stored only when the configured scope names
   their host.
 
 `-j`: `items:[{origin, landing, routes, routes_skipped, stubs_never_hit,
-writes_allowed, totals, stored, store_skip}]`; each route (and `landing`) has
-`route, url, navigation (load|client|full), final_url, redirected, title,
-text_sample, requests[{method,url,type,status,record_uuid}], aborted_writes,
-stubs_hit`. `redirected: true` means the guard still sent you away — read
+rewrites_never_hit, clicks_refused, skipped_controls, writes_allowed, totals,
+stored, store_skip}]`; each route (and `landing`) has `route, url, navigation
+(load|client|full), final_url, redirected, title, text_sample,
+requests[{method,url,type,status,record_uuid,via}], aborted_writes, stubs_hit,
+rewrites_hit, clicks[{kind,label,requests,left_route,error}],
+clicks_skipped_destructive`. `redirected: true` means the guard still sent you away — read
 `stubs_never_hit` and the requests before changing the profile. A reached
 endpoint is **not** a finding: confirm it with an anonymous request
 (`vigolium replay`) and let the access-control checks decide.

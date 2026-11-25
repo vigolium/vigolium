@@ -43,6 +43,9 @@ type Config struct {
 	// Budget is the request budget the egress gate holds the stack to (nil =
 	// none). A refused request fails fast.
 	Budget *egress.Budget
+	// SendScope is the scope the requester enforces at send time on every
+	// request and redirect hop (nil = none; services.Services.SendScope).
+	SendScope services.SendScope
 }
 
 // Stack is a Requester and the Services behind it. Close releases them.
@@ -79,7 +82,7 @@ func New(cfg Config) (*Stack, error) {
 		return nil, fmt.Errorf("failed to initialize network: %w", err)
 	}
 	hostLimiter := hostlimit.NewHostRateLimiter(HostLimiterConfig(opts.MaxPerHost, cfg.MaxHosts, cfg.WafPacing, opts.NoWafPacing))
-	svc := &services.Services{Options: opts, DedupManager: dedup.NewManager(), HostLimiter: hostLimiter}
+	svc := &services.Services{Options: opts, DedupManager: dedup.NewManager(), HostLimiter: hostLimiter, SendScope: cfg.SendScope}
 	if cfg.RateLimit > 0 {
 		svc.RateLimiter = rate.NewLimiter(rate.Limit(cfg.RateLimit), 1)
 	}

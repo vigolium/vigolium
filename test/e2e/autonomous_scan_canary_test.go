@@ -4,6 +4,8 @@ package e2e
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -114,8 +116,9 @@ func runAutonomousScan(t *testing.T, seed string, extraHeaders []string, tune fu
 	r.SetRepository(repo)
 	t.Cleanup(func() { r.Close() })
 
-	require.NoError(t, r.RunNativeScan(),
-		"autonomous discovery+spidering+dynamic-assessment scan should complete without error")
+	err = r.RunNativeScan()
+	skipIfTargetDied(t, err, seed)
+	require.NoError(t, err, "autonomous discovery+spidering+dynamic-assessment scan should complete without error")
 
 	ctx := context.Background()
 	records, err := database.NewQueryBuilder(db, database.QueryFilters{ProjectUUID: database.DefaultProjectUUID}).Execute(ctx)
@@ -275,4 +278,42 @@ func TestAutonomousScan_JuiceShop(t *testing.T) {
 		"browser spidering should surface Juice Shop routes beyond the seed")
 	t.Logf("juiceshop autonomous scan: %d findings on %d discovered paths",
 		len(res.findings), len(res.distinctPaths))
+}
+
+// quarantinedDetail is the detail the dead-host breaker gives a target it
+// quarantined mid-scan (runner.allTargetsQuarantined).
+const quarantinedDetail = "quarantined for the rest of the scan"
+
+// skipIfTargetDied skips a scan test whose target went down during the scan:
+// Juice Shop leaks per-path metrics and can run out of memory (exit 133) or
+// wedge its event loop under a full scan. A dead target says nothing about the
+// scanner. It skips only on no_targets_reachable, and only when the target
+// does not answer now or the breaker quarantined every target mid-scan; a
+// target that answers but that the scan never reached at all still fails.
+func skipIfTargetDied(t *testing.T, err error, probe string) {
+	t.Helper()
+	var tu *runner.TargetsUnreachableError
+	if err == nil || !errors.As(err, &tu) {
+		return
+	}
+	quarantined := len(tu.Unreachable) > 0
+	for _, issue := range tu.Unreachable {
+		if issue.Detail != quarantinedDetail {
+			quarantined = false
+		}
+	}
+	if quarantined || targetGone(probe) {
+		t.Skipf("the target died mid-scan (%v); its results say nothing about the scanner", err)
+	}
+}
+
+// targetGone reports whether probe no longer answers within 5s.
+func targetGone(probe string) bool {
+	c := &http.Client{Timeout: 5 * time.Second}
+	resp, err := c.Get(probe)
+	if err != nil {
+		return true
+	}
+	_ = resp.Body.Close()
+	return false
 }

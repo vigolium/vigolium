@@ -232,6 +232,12 @@
               "type": "null"
             }
           ]
+        },
+        "module_stats": {
+          "additionalProperties": {
+            "$ref": "#/$defs/scanevents.ModuleStat"
+          },
+          "type": "object"
         }
       },
       "additionalProperties": false,
@@ -291,6 +297,7 @@
             "not_ready",
             "out_of_scope",
             "output_too_large",
+            "pace_unsupported",
             "partial",
             "payload_too_large",
             "pdf_failed",
@@ -302,6 +309,7 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "refused_by_policy",
             "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
@@ -453,6 +461,30 @@
         "path",
         "bytes"
       ]
+    },
+    "scanevents.ModuleStat": {
+      "properties": {
+        "invocations": {
+          "type": "integer"
+        },
+        "requests": {
+          "type": "integer"
+        },
+        "findings": {
+          "type": "integer"
+        },
+        "errors": {
+          "type": "integer"
+        },
+        "skips": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "scanplan.AuthSession": {
       "properties": {
@@ -823,6 +855,12 @@
         "tier_filtered": {
           "type": "integer"
         },
+        "max_module_tier": {
+          "type": "string"
+        },
+        "tier_capped": {
+          "type": "integer"
+        },
         "hygiene_suppressed": {
           "type": "integer"
         },
@@ -869,6 +907,7 @@
         "extensions",
         "tier_ceiling",
         "tier_filtered",
+        "tier_capped",
         "hygiene_suppressed",
         "risk_gated",
         "risky_payloads_allowed",

@@ -180,6 +180,10 @@ type ContainerConfig struct {
 	WaitStrategy  wait.Strategy
 	Env           map[string]string
 	ReadyEndpoint string
+	// MemoryBytes caps the container's memory (0 = no cap). A target that
+	// leaks under a scan is killed at its cap instead of starving the Docker
+	// VM, which stalls every later container start in the suite.
+	MemoryBytes int64
 }
 
 // VulnerableApp represents a running vulnerable application container
@@ -188,6 +192,11 @@ type VulnerableApp struct {
 	BaseURL   string
 	ctx       context.Context
 }
+
+// juiceShopImage pins a Juice Shop release. `latest` follows the project's
+// development snapshots (20.4.0-SNAPSHOT on 2026-11-19), whose search endpoint
+// stops answering under a scan and whose heap runs out under an autonomous one.
+const juiceShopImage = "bkimminich/juice-shop:v20.4.0"
 
 // StartContainer starts a Docker container with the given configuration.
 // The host-side port is pre-picked from a reservation-aware pool so the
@@ -222,6 +231,10 @@ func StartContainer(ctx context.Context, config ContainerConfig) (*VulnerableApp
 		WaitingFor:   config.WaitStrategy,
 		Env:          config.Env,
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
+			if config.MemoryBytes > 0 {
+				hc.Memory = config.MemoryBytes
+				hc.MemorySwap = config.MemoryBytes // no swap on top of the cap
+			}
 			hc.PortBindings = dockernetwork.PortMap{
 				natPort: []dockernetwork.PortBinding{{
 					HostIP:   netip.MustParseAddr("127.0.0.1"),

@@ -95,6 +95,9 @@ type Executor struct {
 	// only honest one for an ingest is the third.
 	stored      atomic.Int64
 	storeFailed atomic.Int64
+	// writeTemplatesSkipped counts store stubs the write-template guard
+	// refused to send (WriteTemplatesSkipped).
+	writeTemplatesSkipped atomic.Int64
 
 	// drops says WHY an item stored nothing: one counter per DropReason plus the
 	// first few examples. Without it an ingest that stored 0 of 40 could only

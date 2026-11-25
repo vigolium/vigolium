@@ -16,6 +16,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/scanplan"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -95,6 +96,10 @@ type scanStatusView struct {
 	DBPath       string         `json:"db_path,omitempty"`
 	// Source says where the facts came from: "db", "status_file" or both.
 	Source []string `json:"source"`
+	// ModuleStats is the per-module ledger the scan stored (scans.
+	// module_stats): calls, wire requests, findings, errors and the calls not
+	// made by skip reason; absent while the scan runs or when it ran none.
+	ModuleStats map[string]scanevents.ModuleStat `json:"module_stats,omitempty"`
 
 	// startedAt and phaseStarted are the parsed times the ETA is computed from;
 	// finishedAt is the row's, for the scan document `scan wait` builds.
@@ -297,6 +302,7 @@ func buildScanStatusView(uuid string, row *database.Scan, file *runner.SessionSt
 			v.FinishedAt = formatLivenessTime(row.FinishedAt)
 		}
 		v.Plan = storedScanPlan(row)
+		v.ModuleStats = moduleStatsView(row.ModuleStats)
 	}
 	if file != nil {
 		v.Source = append(v.Source, "status_file")

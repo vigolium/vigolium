@@ -4,6 +4,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/vigolium/vigolium/internal/config"
 )
 
 // TestExpectedSchemaObjectsCoversDDL guards the parser that derives the expected
@@ -90,6 +92,8 @@ func TestSchemaReadyDetectsMissingObjects(t *testing.T) {
 		{"missing deferrable record index", "DROP INDEX IF EXISTS idx_records_dedup"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Repair is a migration, which an open runs only when allowed.
+			t.Setenv(config.AutoMigrateEnvVar, "1")
 			db, _ := tempSchemaDB(t)
 			if _, err := db.ExecContext(t.Context(), tc.drop); err != nil {
 				t.Fatalf("%s: %v", tc.drop, err)
@@ -128,6 +132,7 @@ func TestSchemaReadyIgnoresDeferredRecordIndexes(t *testing.T) {
 // TestSchemaReadyDetectsStaleVersion covers an older database that holds every
 // object but still owes the one-time backfills.
 func TestSchemaReadyDetectsStaleVersion(t *testing.T) {
+	t.Setenv(config.AutoMigrateEnvVar, "1")
 	db, _ := tempSchemaDB(t)
 
 	if _, err := db.ExecContext(t.Context(), "UPDATE schema_meta SET version = 0 WHERE id = 1"); err != nil {

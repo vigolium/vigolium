@@ -126,11 +126,24 @@ func (e *SchemaTooNewError) Error() string {
 func (e *SchemaTooNewError) Is(target error) bool        { return target == ErrSchemaTooNew }
 func (e *SchemaTooNewError) Code() apicontract.ErrorCode { return apicontract.CodeSchemaTooNew }
 
-// SchemaOutdatedError reports a store written by an older vigolium that a
-// read-intent open will not migrate. It unwraps to ErrSchemaOutdated.
+// SchemaOutdatedError reports a store written by an older vigolium that an
+// open will not migrate: a read-intent pool never can, and a writer does not
+// unless database.auto_migrate_on_read (or VIGOLIUM_AUTO_MIGRATE) allows it.
+// It unwraps to ErrSchemaOutdated.
 type SchemaOutdatedError struct {
 	DBVersion int
 	Missing   []string
+	// Path is the store's file, named in the remedy so it can be pasted as is;
+	// empty for Postgres and in-memory stores.
+	Path string
+}
+
+// MigrateCommand is the command that upgrades the store this error names.
+func (e *SchemaOutdatedError) MigrateCommand() string {
+	if e.Path == "" || e.Path == ":memory:" {
+		return "vigolium db migrate"
+	}
+	return "vigolium db migrate --db " + e.Path
 }
 
 // schemaOutdatedListLimit bounds how many gaps the message names; the rest are
@@ -144,9 +157,15 @@ func (e *SchemaOutdatedError) Error() string {
 		more = fmt.Sprintf(", and %d more", len(missing)-schemaOutdatedListLimit)
 		missing = missing[:schemaOutdatedListLimit]
 	}
-	return fmt.Sprintf("%v (schema v%d, this vigolium expects v%d; missing: %s%s)\n"+
-		"  run `vigolium db migrate` to upgrade it, or set database.auto_migrate_on_read: true",
-		ErrSchemaOutdated, e.DBVersion, currentSchemaVersion, strings.Join(missing, ", "), more)
+	// Additive tables ride the current version without a bump, so a store can
+	// be at this vigolium's version and still lack objects it creates.
+	where := fmt.Sprintf("schema v%d, this vigolium expects v%d", e.DBVersion, currentSchemaVersion)
+	if e.DBVersion >= currentSchemaVersion {
+		where = fmt.Sprintf("schema v%d, written before this vigolium added some of its objects", e.DBVersion)
+	}
+	return fmt.Sprintf("%v (%s; missing: %s%s)\n"+
+		"  run `%s` to upgrade it, or set VIGOLIUM_AUTO_MIGRATE=1 (database.auto_migrate_on_read: true) to let opens migrate",
+		ErrSchemaOutdated, where, strings.Join(missing, ", "), more, e.MigrateCommand())
 }
 
 func (e *SchemaOutdatedError) Is(target error) bool        { return target == ErrSchemaOutdated }
@@ -219,7 +238,7 @@ func (db *DB) CheckSchema(ctx context.Context) error {
 	case err != nil:
 		return err
 	case len(gaps) > 0:
-		return &SchemaOutdatedError{DBVersion: info.Version, Missing: gaps}
+		return &SchemaOutdatedError{DBVersion: info.Version, Missing: gaps, Path: db.path}
 	}
 	return nil
 }

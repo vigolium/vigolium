@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -16,9 +17,12 @@ import (
 )
 
 // Scope admission on the CLI: the verdict over a scan's targets, computed
-// before any request is sent, so a scope that refuses every target fails the
-// command (exit 1, error.code no_targets_in_scope) instead of running an empty
-// scan that reports success. The runner owns the decision for runner scans
+// before any request is sent. scan, scan-url and scan-request gate on it at
+// entry like every sender (sendScopeGate): a target the configured scope
+// refuses — host, path, port, scope.cidr, or the private-address and
+// instance-metadata blocks for an IP-literal host — ends the command with exit
+// 2, error.code out_of_scope, before a plan, a scan row or a request; so does
+// VIGOLIUM_REQUIRE_SCOPE=1 with a scope that names no hosts. The runner owns the decision for runner scans
 // (runner.AdmitTargets in RunNativeScan); the CLI computes the same verdict for
 // its banner and scan.started, and owns it outright on the scan-url /
 // scan-request direct path, which has no runner.
@@ -60,14 +64,52 @@ func scanTargetAdmission(settings *config.Settings, opts *types.Options, inputMo
 	return &adm
 }
 
-// relaxScopeForIgnore widens the host and path rules to the defaults (include
-// everything, exclude nothing) for --ignore-scope on the runner path. Body
-// limits, origin mode and the status/content-type rules are left as configured:
-// the flag is about which target may be scanned, not how responses are kept.
+// scanEntryScopeGate is `vigolium scan`'s entry gate over the targets it is
+// about to seed (scanSeededTargets); a scan whose input is not a target list
+// is judged record by record by the executor and the requester instead.
+func scanEntryScopeGate(settings *config.Settings, opts *types.Options, inputModeExplicit bool) error {
+	if settings == nil {
+		return nil
+	}
+	targets, _, _ := scanSeededTargets(opts, inputModeExplicit)
+	matcher := config.NewScopeMatcher(settings.Scope, targets...)
+	return refuseOutOfScope(matcher, runner.AdmitTargets(settings.Scope, targets))
+}
+
+// refuseOutOfScope is the entry gate's verdict: --require-scope's empty-scope
+// refusal (VIGOLIUM_REQUIRE_SCOPE), then out_of_scope naming every target the
+// admission rejected with its rule.
+func refuseOutOfScope(matcher *config.ScopeMatcher, adm types.TargetAdmission) error {
+	require, err := requireScopeRequested(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if require && !matcher.RestrictsHosts() {
+		return emptyScopeError()
+	}
+	if len(adm.Rejected) == 0 {
+		return nil
+	}
+	return clicommon.CLIError{
+		Err:  fmt.Errorf("outside the configured scope, nothing sent: %s", runner.DescribeRejected(adm.Rejected, 10)),
+		Code: apicontract.CodeOutOfScope,
+		Hint: scopeRemediation(adm.Rejected),
+	}
+}
+
+// relaxScopeForIgnore widens the host, path, CIDR and port rules to the
+// defaults (include everything, exclude nothing) for --ignore-scope on the
+// runner path. Body limits, origin mode and the status/content-type rules are
+// left as configured: the flag is about which target may be scanned, not how
+// responses are kept. The send-time instance-metadata block still applies (no
+// rule names the endpoint); the private-address block lifts for the CLI
+// targets themselves.
 func relaxScopeForIgnore(scope *config.ScopeConfig) {
 	def := config.DefaultScopeConfig()
 	scope.Host = def.Host
 	scope.Path = def.Path
+	scope.CIDR = def.CIDR
+	scope.Port = def.Port
 	scope.IgnoreStaticFile = false
 }
 
@@ -79,6 +121,8 @@ func scopeRuleKey(rule string) string {
 		return "scope.ignore_static_file"
 	case config.ScopeRuleCLIOriginMode:
 		return "scope.cli_origin_mode (or --scope-origin all)"
+	case config.ScopeRuleMetadataAddress, config.ScopeRulePrivateAddress:
+		return "scope.host.include or scope.cidr.include (name the address to lift the " + rule + " block)"
 	default:
 		return rule
 	}
@@ -195,6 +239,15 @@ func admitDirectInputs(cfg *directSettings, inputs []scanInput) (*directAdmissio
 		d.rejected[v.Target] = v
 	}
 	return d, nil
+}
+
+// refuse is scan-url / scan-request's entry gate (refuseOutOfScope) over the
+// admission; nil under --ignore-scope.
+func (d *directAdmission) refuse() error {
+	if d == nil {
+		return nil
+	}
+	return refuseOutOfScope(d.matcher, d.adm)
 }
 
 // verdict returns the rejection for target, if scope refused it.

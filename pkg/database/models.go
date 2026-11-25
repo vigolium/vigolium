@@ -7,6 +7,7 @@ import (
 
 	"github.com/uptrace/bun"
 	"github.com/vigolium/vigolium/pkg/agent/recon"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/tlsprobe"
 )
 
@@ -336,6 +337,21 @@ type HTTPRecord struct {
 
 	Source string `bun:"source,nullzero,default:''" json:"source,omitempty"`
 
+	// RequestOnlyAtStore is when this row was first written WITHOUT a
+	// response: an ingested template, a spec stub, a harvested URL. Nil means
+	// the first write carried the response a real exchange produced. Never
+	// cleared — a baseline backfilled later does not make the request one a
+	// client sent — so it is the provenance the dynamic-assessment write gate
+	// reads (WriteTemplateGate). Rows written before the column existed are
+	// nil; the gate falls back to has_response for them.
+	RequestOnlyAtStore *time.Time `bun:"request_only_at_store,nullzero" json:"request_only_at_store,omitempty"`
+
+	// RequestIdentityHash is a hash of the request's Authorization and Cookie
+	// header values ("" when it sent neither): the principal half of the
+	// write-time dedup identity for a body-less request, so one principal's
+	// GET never lands on another principal's row (requestIdentityHash).
+	RequestIdentityHash string `bun:"request_identity_hash,nullzero" json:"request_identity_hash,omitempty"`
+
 	// Analysis & enrichment
 	Technology      []string `bun:"technology,type:jsonb,nullzero" json:"technology,omitempty"`     // detected technologies/frameworks
 	ContentHash     string   `bun:"content_hash,nullzero" json:"content_hash,omitempty"`            // hash of meaningful response content for change detection
@@ -529,6 +545,10 @@ type Finding struct {
 	Confidence    string   `bun:"confidence,notnull,default:'firm'" json:"confidence"`
 	Tags          []string `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`
 
+	// Principals names the auth sessions a cross-session finding compares, the
+	// primary first (output.ResultEvent metadata primary_session / compare_session).
+	Principals []string `bun:"principals,type:jsonb,nullzero" json:"principals,omitempty"`
+
 	// Finding lifecycle
 	Status      string `bun:"status,nullzero,default:'triaged'" json:"status,omitempty"` // one of FindingStatuses
 	Remediation string `bun:"remediation,nullzero" json:"remediation,omitempty"`
@@ -569,6 +589,10 @@ type Finding struct {
 	OriginRecordUUID string                 `bun:"origin_record_uuid,nullzero" json:"origin_record_uuid,omitempty"`
 	InsertionPoint   *FindingInsertionPoint `bun:"insertion_point,type:jsonb,nullzero" json:"insertion_point,omitempty"`
 	Payload          string                 `bun:"payload,nullzero" json:"payload,omitempty"`
+	// Proof is the module's decision as a replayable recipe
+	// (output.ProofRecipe, `vigolium schema proof`); NULL for a module that has
+	// not opted in and on older rows.
+	Proof *output.ProofRecipe `bun:"proof,type:jsonb,nullzero" json:"proof,omitempty"`
 
 	// Verification is the latest re-verification result, separate from Status.
 	// VerifiedAt duplicates its timestamp as a column for sorting and filtering.

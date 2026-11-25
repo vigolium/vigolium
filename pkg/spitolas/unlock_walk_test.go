@@ -182,3 +182,164 @@ func TestUnlockWalkWithoutProfileIsRedirected(t *testing.T) {
 		t.Errorf("totals = %+v", res.Totals)
 	}
 }
+
+// unlockClickFixtureSPA renders /admin only for a token and role admin from
+// GET /api/me (the real server answers 401), then shows controls that fire
+// their calls only when clicked: a search (a GET), an export (a POST), and
+// two destructive controls a GET could still act on (a purge button fetching
+// GET /api/admin/purge, a logout link).
+const unlockClickFixtureSPA = `<!doctype html><html><head><title>Fixture</title></head>
+<body><div id="app">loading</div><script>
+async function render() {
+  const app = document.getElementById('app');
+  const toLogin = () => { history.replaceState(null, '', '/login'); document.title = 'Login'; app.textContent = 'Please log in'; };
+  if (location.pathname === '/admin') {
+    if (!localStorage.getItem('token')) return toLogin();
+    const me = await fetch('/api/me').then(r => r.ok ? r.json() : null).catch(() => null);
+    if (!me || me.role !== 'admin') return toLogin();
+    document.title = 'Admin';
+    app.innerHTML = '<p>Admin panel</p>' +
+      '<button id="search">Search</button>' +
+      '<button id="export">Export</button>' +
+      '<button id="purge">Delete all users</button>' +
+      '<a id="out" href="/logout">Log out</a>';
+    document.getElementById('search').onclick = () => fetch('/api/admin/search?q=').catch(() => {});
+    document.getElementById('export').onclick = () => fetch('/api/admin/export', { method: 'POST', body: 'all' }).catch(() => {});
+    document.getElementById('purge').onclick = () => fetch('/api/admin/purge').catch(() => {});
+    return;
+  }
+  if (location.pathname === '/login') { document.title = 'Login'; app.textContent = 'Please log in'; return; }
+  document.title = 'Home'; app.textContent = 'Welcome home';
+}
+window.addEventListener('popstate', render);
+render();
+</script></body></html>`
+
+func newUnlockClickFixture(t *testing.T) *unlockFixture {
+	t.Helper()
+	f := &unlockFixture{}
+	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.seen = append(f.seen, r.Method+" "+r.URL.Path)
+		f.mu.Unlock()
+		switch r.URL.Path {
+		case "/api/me":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"not logged in"}`))
+		case "/api/admin/search", "/api/admin/purge", "/api/admin/export":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(unlockClickFixtureSPA))
+		}
+	}))
+	t.Cleanup(f.Close)
+	return f
+}
+
+const unlockClickProfile = `,"settleMs":3000,"localStorage":{"token":"forged"},
+	"rewrites":[{"method":"GET","path":"/api/me","status":200,"set":[{"pointer":"/role","value":"admin"}]}],
+	"routes":["/admin"]}`
+
+// A rewrite turns the real 401 into an admin answer and the view renders; the
+// rewritten exchange is reported as a rewrite and never stored. The click
+// loop fires the search (stored, via click) and the export (a write, failed
+// and reported by shape), and never clicks the destructive controls.
+func TestUnlockWalkRewriteAndClicks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("launches a real browser")
+	}
+	f := newUnlockClickFixture(t)
+	res, sink := runFixtureWalk(t, `{"origin":"`+f.URL+`"`+unlockClickProfile)
+	admin := res.Routes[0]
+	if admin.Redirected || !strings.Contains(admin.TextSample, "Admin panel") {
+		t.Fatalf("the rewrite did not unlock the view: %+v", admin)
+	}
+
+	// The rewritten answer: real request, never evidence.
+	if f.count("GET /api/me") == 0 {
+		t.Fatalf("a rewritten request must reach the target; seen %v", f.seen)
+	}
+	if len(admin.RewritesHit) == 0 || !admin.RewritesHit[0].Applied || admin.RewritesHit[0].UpstreamStatus != 401 || admin.RewritesHit[0].Status != 200 {
+		t.Fatalf("rewrites_hit = %+v", admin.RewritesHit)
+	}
+	for _, u := range sink.urls {
+		if strings.HasSuffix(u, "/api/me") {
+			t.Fatalf("the rewritten /api/me exchange was stored: %v", sink.urls)
+		}
+	}
+	for _, q := range admin.Requests {
+		if strings.HasSuffix(q.URL, "/api/me") {
+			t.Fatalf("the rewritten request is listed as real: %+v", admin.Requests)
+		}
+	}
+
+	// The clicks.
+	if f.count("GET /api/admin/search") == 0 {
+		t.Fatalf("the search click sent nothing; clicks %+v, seen %v", admin.Clicks, f.seen)
+	}
+	var search *UnlockRequest
+	for i, q := range admin.Requests {
+		if strings.Contains(q.URL, "/api/admin/search") {
+			search = &admin.Requests[i]
+		}
+	}
+	if search == nil || search.Via != "click" || search.RecordUUID == "" {
+		t.Fatalf("the search request is not reported as a stored click request: %+v", admin.Requests)
+	}
+	if n := f.count("POST /api/admin/export"); n != 0 {
+		t.Fatalf("a click's write reached the server %d time(s)", n)
+	}
+	exported := false
+	for _, a := range admin.AbortedWrites {
+		if strings.HasSuffix(a.URL, "/api/admin/export") && a.Via == "click" {
+			exported = true
+		}
+	}
+	if !exported {
+		t.Fatalf("the export click's write is not reported by shape: %+v", admin.AbortedWrites)
+	}
+	if f.count("GET /api/admin/purge") != 0 || f.count("GET /logout") != 0 {
+		t.Fatalf("a destructive control was clicked: seen %v, clicks %+v", f.seen, admin.Clicks)
+	}
+	if admin.ClicksSkippedDestructive < 2 {
+		t.Errorf("clicks_skipped_destructive = %d, want the purge button and the logout link", admin.ClicksSkippedDestructive)
+	}
+	kinds := map[string]bool{}
+	for _, c := range admin.Clicks {
+		kinds[c.Kind] = true
+	}
+	if !kinds[unlockTriggerSearch] || !kinds[unlockTriggerExport] {
+		t.Errorf("clicks = %+v", admin.Clicks)
+	}
+	if res.Totals.Clicks != len(admin.Clicks) || res.Totals.RewritesApplied == 0 || res.ClicksRefused != "" {
+		t.Errorf("totals = %+v, clicks_refused %q", res.Totals, res.ClicksRefused)
+	}
+}
+
+// Under a write grant the walk clicks nothing and says why.
+func TestUnlockWalkRefusesClicksUnderWriteGrant(t *testing.T) {
+	if testing.Short() {
+		t.Skip("launches a real browser")
+	}
+	f := newUnlockClickFixture(t)
+	p := mustProfile(t, `{"origin":"`+f.URL+`"`+unlockClickProfile)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	res, err := UnlockWalk(ctx, UnlockWalkConfig{Profile: p, Sink: &memWalkSink{}, AllowWrites: true})
+	if err != nil {
+		t.Fatalf("UnlockWalk: %v", err)
+	}
+	admin := res.Routes[0]
+	if admin.Redirected || !strings.Contains(admin.TextSample, "Admin panel") {
+		t.Fatalf("view not reached: %+v", admin)
+	}
+	if res.ClicksRefused != "writes_allowed" || len(admin.Clicks) != 0 || res.Totals.Clicks != 0 {
+		t.Fatalf("clicks under a write grant: refused %q, clicks %+v", res.ClicksRefused, admin.Clicks)
+	}
+	if f.count("GET /api/admin/search") != 0 || f.count("POST /api/admin/export") != 0 {
+		t.Fatalf("a control was clicked under a write grant: seen %v", f.seen)
+	}
+}

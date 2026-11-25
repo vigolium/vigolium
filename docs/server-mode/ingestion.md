@@ -221,7 +221,7 @@ vigolium ingest --input urls.txt --db ./project.db
 vigolium ingest --input urls.txt --project-uuid a1b2c3d4-...
 ```
 
-Inputs containing a response (a Burp request/response pair separated by `***`, HAR, and similar formats) preserve that response instead of fetching it again — whichever parser produced them, and whether or not the origin still resolves. For request-only inputs, local mode fetches a baseline response unless `--disable-fetch-response` is set.
+Inputs containing a response (a Burp request/response pair separated by `***`, HAR, and similar formats) preserve that response instead of fetching it again — whichever parser produced them, and whether or not the origin still resolves. Request-only inputs are stored as templates and nothing is sent, unless `--fetch-responses` is set.
 
 The completion line reports what the database **holds**: `N records ingested`
 equals `select count(*) from http_records` for the run. A record that was read

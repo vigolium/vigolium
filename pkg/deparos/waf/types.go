@@ -20,12 +20,16 @@ type BlockResult struct {
 	// IsBlocked indicates whether the response is a WAF block.
 	IsBlocked bool
 
-	// WAFType identifies the WAF/CDN that blocked the request.
-	// Examples: "cloudflare", "akamai", "aws_waf", "imperva", "f5_bigip", "sucuri", "modsecurity", "generic"
+	// WAFType identifies the WAF/CDN that blocked the request: the firing
+	// rows' vendor. Examples: "cloudflare", "akamai", "aws_waf", "imperva", "f5_bigip", "sucuri", "modsecurity", "generic"
 	WAFType string
 
-	// Indicators lists what triggered detection (headers, body patterns).
+	// Indicators are the ids of the Signatures rows that fired.
 	Indicators []string
+
+	// Challenge marks a vendor challenge or interstitial page: one of the
+	// firing rows is a challenge row.
+	Challenge bool
 }
 
 // BlockInfo contains information about a detected WAF block.

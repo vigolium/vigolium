@@ -98,7 +98,7 @@ func startJuiceShopContainer(t *testing.T) *VulnerableApp {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	app, err := StartContainer(ctx, ContainerConfig{
-		Image:       "bkimminich/juice-shop:latest",
+		Image:       juiceShopImage,
 		ExposedPort: "3000/tcp",
 		WaitStrategy: wait.ForHTTP("/").
 			WithPort("3000").
@@ -150,6 +150,14 @@ database:
 		"--config", cfgPath,
 		"--only", "ingestion", // shortest phase — banner still reflects deep
 		"--scanning-max-duration", "20s",
+		// A native scan always opens a store (database.enabled does not stop
+		// it); give it a fresh one so the test never touches ~/.vigolium.
+		"--db", filepath.Join(t.TempDir(), "scan.sqlite"),
+	)
+	cmd.Env = append(os.Environ(),
+		"HOME="+t.TempDir(),
+		"VIGOLIUM_PROJECT_UUID=",
+		"VIGOLIUM_PROJECT_NAME=",
 	)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

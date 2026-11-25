@@ -254,6 +254,24 @@ func adoptRecordOn(ctx context.Context, db bun.IDB, uuid string, lineage RecordL
 // response-derived columns are refreshed in place while the stable UUID and
 // finding links are preserved. outcome is inserted, updated, or unchanged.
 func (r *Repository) UpsertSnapshotRecord(ctx context.Context, httpRR *httpmsg.HttpRequestResponse, source string, projectUUID string) (uuid, outcome string, err error) {
+	return r.UpsertCapturedRecord(ctx, httpRR, source, projectUUID, Capture{})
+}
+
+// Capture is what an importer knows about a snapshot record beyond its bytes.
+type Capture struct {
+	// SentAt is when the capturing tool saw the exchange (a bridge summary's
+	// time). It becomes sent_at — on insert, and on an update that replaces
+	// the response with that capture's. Zero means unknown: sent_at is the
+	// time of this write. created_at is always the time of the insert.
+	SentAt time.Time
+	// ScanUUID is stamped on a new row (the importing invocation's scans
+	// row); an existing row keeps its own.
+	ScanUUID string
+}
+
+// UpsertCapturedRecord is UpsertSnapshotRecord carrying the capture's own
+// time and the importing invocation's scan row.
+func (r *Repository) UpsertCapturedRecord(ctx context.Context, httpRR *httpmsg.HttpRequestResponse, source string, projectUUID string, capture Capture) (uuid, outcome string, err error) {
 	if httpRR == nil || httpRR.Request() == nil {
 		return "", "", fmt.Errorf("invalid HttpRequestResponse")
 	}
@@ -263,6 +281,12 @@ func (r *Repository) UpsertSnapshotRecord(ctx context.Context, httpRR *httpmsg.H
 	}
 	record.Source = source
 	record.ProjectUUID = defaultProjectUUID(projectUUID)
+	if !capture.SentAt.IsZero() {
+		record.SentAt = capture.SentAt
+	}
+	if capture.ScanUUID != "" {
+		record.ScanUUID = capture.ScanUUID
+	}
 
 	existingUUID, lookupErr := r.findDuplicateRecord(ctx, record)
 	if lookupErr != nil {
@@ -288,6 +312,9 @@ func (r *Repository) UpsertSnapshotRecord(ctx context.Context, httpRR *httpmsg.H
 	}
 	_, err = r.db.NewUpdate().
 		Model((*HTTPRecord)(nil)).
+		// The row now holds this capture's response, so it carries this
+		// capture's time.
+		Set("sent_at = ?", record.SentAt).
 		Set("status_code = ?", record.StatusCode).
 		Set("status_phrase = ?", record.StatusPhrase).
 		Set("response_http_version = ?", record.ResponseHTTPVersion).
@@ -342,12 +369,22 @@ func recordDedupTuple(method, host, path, url string) string {
 // finding to traffic that never carried the attacker header (and to the baseline
 // response). Requiring the request_hash keeps each proving exchange distinct.
 //
+// Hand-sent and mined exchanges (replay, fuzz, param-mining) are the same
+// kind of proof: a replay's whole point is the headers it carried, and a mined
+// parameter or header is confirmed by exactly one request's bytes.
+//
 // Crawler/ingest sources (scanner, spidering, discovery, ingest-*) intentionally
 // keep the coarse no-body key so repeated identical fetches still collapse and the
-// record store isn't inflated by every header-varied crawl request.
+// record store isn't inflated by every header-varied crawl request. The coarse
+// key still carries the principal (request_identity_hash): only headers that do
+// not say WHO sent the request are ignored.
 func recordSourceRequiresExactIdentity(source string) bool {
-	return slices.Contains(evidenceRecordKinds, source)
+	return slices.Contains(evidenceRecordKinds, source) || slices.Contains(exactIdentitySentSources, source)
 }
+
+// exactIdentitySentSources are the non-evidence-kind sources whose records
+// dedup on the exact request bytes (recordSourceRequiresExactIdentity).
+var exactIdentitySentSources = []string{RecordSourceReplay, RecordSourceFuzz, RecordSourceParamMining}
 
 // dedupCandidate is the narrow projection findDuplicateRecordUUIDs scans — only
 // the columns the duplicate rule needs, so candidate rows don't allocate full
@@ -358,13 +395,17 @@ type dedupCandidate struct {
 	Path        string `bun:"path"`
 	URL         string `bun:"url"`
 	RequestHash string `bun:"request_hash"`
-	UUID        string `bun:"uuid"`
+	// IdentityHash is request_identity_hash, "" for a row that sent no
+	// Authorization or Cookie (and for rows written before the column).
+	IdentityHash string `bun:"identity_hash"`
+	UUID         string `bun:"uuid"`
 }
 
 // findDuplicateRecordUUIDs is the batched duplicate lookup: for each input
 // record it returns the UUID of a pre-existing duplicate (same project, method,
-// hostname, path, url — plus request_hash when the request carries a body) or ""
-// when none exists; the result slice is parallel to records.
+// hostname, path, url — plus request_hash when the request carries a body, and
+// request_identity_hash when it does not) or "" when none exists; the result
+// slice is parallel to records.
 //
 // It runs one SELECT per distinct project (instead of one per record), letting
 // the batched record writer keep the dedup check off the scan worker's hot path.
@@ -414,6 +455,7 @@ func (r *Repository) findDuplicateRecordUUIDs(ctx context.Context, records []*HT
 		err := r.db.NewSelect().
 			Model((*HTTPRecord)(nil)).
 			Column("method", "hostname", "path", "url", "request_hash", "uuid").
+			ColumnExpr("COALESCE(request_identity_hash, '') AS identity_hash").
 			Where("project_uuid = ?", project).
 			Where(clause.String(), args...).
 			Scan(ctx, &rows)
@@ -422,11 +464,12 @@ func (r *Repository) findDuplicateRecordUUIDs(ctx context.Context, records []*HT
 		}
 
 		// A body record matches the candidate with the same request_hash; a
-		// no-body record matches any candidate (mirroring findDuplicateRecord,
-		// which omits the request_hash filter when there is no body) — UNLESS its
-		// source requires exact identity (finding-evidence records), in which case
-		// it too must match on request_hash so a header-only probe never collapses
-		// onto an unrelated baseline record.
+		// no-body record matches a candidate sent by the same principal (the
+		// same request_identity_hash: Authorization and Cookie), whatever its
+		// other headers — UNLESS its source requires exact identity
+		// (finding-evidence and hand-sent records), in which case it too must
+		// match on request_hash so a header-only probe never collapses onto an
+		// unrelated baseline record.
 		byTuple := make(map[string][]dedupCandidate, len(rows))
 		for _, row := range rows {
 			k := recordDedupTuple(row.Method, row.Hostname, row.Path, row.URL)
@@ -440,7 +483,12 @@ func (r *Repository) findDuplicateRecordUUIDs(ctx context.Context, records []*HT
 			}
 			rec := records[i]
 			if rec.RequestContentLength == 0 && !recordSourceRequiresExactIdentity(rec.Source) {
-				out[i] = cands[0].UUID
+				for _, c := range cands {
+					if c.IdentityHash == rec.RequestIdentityHash {
+						out[i] = c.UUID
+						break
+					}
+				}
 				continue
 			}
 			for _, c := range cands {

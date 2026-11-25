@@ -124,6 +124,11 @@ type agentEnvelope struct {
 	// null), in this order, before it cuts any item: bulky context a caller
 	// can fetch again (the scan plan, the per-target table, phase outcomes).
 	droppable []string
+	// cursorAfter returns the next_cursor that resumes right after the first
+	// k items, "" when none can be issued. Set on the keyset-paged reads
+	// (list_cursor.go) so a page the output budget cuts still resumes at the
+	// first row it dropped rather than after the rows it never sent.
+	cursorAfter func(k int) string
 }
 
 // newAgentEnvelope builds the standard envelope with no kind; a command emits

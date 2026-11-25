@@ -128,10 +128,9 @@ func TestPhaseFinishedFailedOutranksCurtailed(t *testing.T) {
 	}
 }
 
-// TestPhaseFinishedSkippedReportsCompleted: a phase with nothing to do is not a
-// degraded phase, so the stream says completed — with the reason attached so a
-// consumer can tell it apart from one that actually ran.
-func TestPhaseFinishedSkippedReportsCompleted(t *testing.T) {
+// TestPhaseFinishedSkippedReportsSkipped: a phase that did no work says
+// skipped, with the reason attached, so "completed" always means it ran.
+func TestPhaseFinishedSkippedReportsSkipped(t *testing.T) {
 	buf := withEventStream(t)
 
 	r := &Runner{}
@@ -143,8 +142,8 @@ func TestPhaseFinishedSkippedReportsCompleted(t *testing.T) {
 	if len(finished) != 1 {
 		t.Fatalf("got %d phase.finished events, want 1", len(finished))
 	}
-	if got := finished[0]["status"]; got != scanevents.StatusCompleted {
-		t.Errorf("status = %v, want completed", got)
+	if got := finished[0]["status"]; got != scanevents.StatusSkipped {
+		t.Errorf("status = %v, want skipped", got)
 	}
 	reasons, _ := finished[0]["reasons"].([]any)
 	if len(reasons) != 1 || reasons[0] != database.ReasonNoModules {

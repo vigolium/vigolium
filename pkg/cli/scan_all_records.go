@@ -96,6 +96,9 @@ func describeScanStore(settings *config.Settings, projectUUID string) string {
 //   - no target source at all, without --all-records, is a usage error in any
 //     machine context and a deprecation warning (still rescanning) on a TTY.
 func resolveScanTargetSource(cmd *cobra.Command, settings *config.Settings) error {
+	if cmd.Flags().Lookup(onlyNewSinceFlag) != nil && cmd.Flags().Changed(onlyNewSinceFlag) {
+		return validateOnlyNewSinceSource(cmd)
+	}
 	if len(scanRecordUUIDs) > 0 {
 		return validateRecordUUIDSource(cmd)
 	}

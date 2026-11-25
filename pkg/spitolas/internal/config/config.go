@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/deparos/waf"
 	"github.com/vigolium/vigolium/pkg/safety"
 	"net/http"
 	"net/url"
@@ -217,6 +218,9 @@ type Config struct {
 	// re-applies its credentials when they change (a re-login) and when a
 	// page lands on a login form after an authenticated start.
 	AuthMonitor AuthMonitor
+	// OnBlock, when set, receives each captured in-scope response classified
+	// as a block or challenge (spitolas.SpiderConfig.OnBlock).
+	OnBlock func(host string, status int, block *waf.BlockResult)
 	// BlockResources fails font and media requests and third-party images.
 	// First-party images are never blocked. Default true.
 	BlockResources               bool

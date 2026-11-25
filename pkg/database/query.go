@@ -25,6 +25,10 @@ type QueryFilters struct {
 	// searches URL/path/body, not identity.
 	RecordUUIDs []string
 
+	// Tags selects records carrying every one of these labels (record_tags,
+	// written by `import --tag`). Records only; findings ignore it.
+	Tags []RecordTag
+
 	// URLsExact selects records whose stored url matches EXACTLY — an equality
 	// IN (), never a LIKE.
 	//
@@ -413,6 +417,9 @@ func (qb *QueryBuilder) applyFilters(query *bun.SelectQuery) {
 	if len(qb.filters.RecordUUIDs) > 0 {
 		query.Where("r.uuid IN (?)", bun.List(qb.filters.RecordUUIDs))
 	}
+
+	// Caller labels (record_tags): a record must carry every tag.
+	applyTagFilter(query, qb.filters.Tags)
 
 	// Exact URL selection, for the same reason and in the same shape: equality,
 	// applied before pagination, so a match is never missed for falling outside
@@ -870,7 +877,8 @@ type cleanableTable struct {
 // AllowedCleanTables maps user-facing table names to their SQL table name
 // and any dependent tables that must be cleaned first.
 var AllowedCleanTables = map[string]cleanableTable{
-	"http_records":             {SQLName: "http_records", CascadeFirst: []string{"finding_records"}},
+	"http_records":             {SQLName: "http_records", CascadeFirst: []string{"finding_records", "record_tags"}},
+	"record_tags":              {SQLName: "record_tags"},
 	"findings":                 {SQLName: "findings", CascadeFirst: findingChildTables},
 	"finding_records":          {SQLName: "finding_records"},
 	"finding_observations":     {SQLName: "finding_observations"},
@@ -937,7 +945,9 @@ var allTablesDeleteOrder = []string{
 	"finding_status_events",
 	"finding_hash_aliases",
 	"findings",
+	"record_tags",
 	"http_records",
+	"websocket_frames",
 	"oast_interactions",
 	"oast_payloads",
 	"oast_sessions",

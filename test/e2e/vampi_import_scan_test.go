@@ -68,13 +68,11 @@ func parseVAmPIPostman(t *testing.T, baseURL string) []*httpmsg.HttpRequestRespo
 	return items
 }
 
+// initVAmPIDB seeds VAmPI's database, retrying while /createdb still answers
+// 500 (the app serves / before its database layer is ready).
 func initVAmPIDB(t *testing.T, baseURL string) {
 	t.Helper()
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(baseURL + "/createdb")
-	require.NoError(t, err, "failed to call /createdb")
-	defer resp.Body.Close()
-	require.Less(t, resp.StatusCode, 500, "/createdb returned server error")
+	seedVAmPIDatabase(t, baseURL)
 }
 
 // vampiReachable reports whether the VAmPI container is currently serving HTTP

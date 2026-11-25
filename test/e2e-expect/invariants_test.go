@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -212,7 +214,7 @@ func writeExpectation(t *testing.T, name string, e expectation) {
 func checkLiveExpectation(t *testing.T, name string, got expectation) {
 	t.Helper()
 	sort.Strings(got.Found)
-	sort.Strings(got.Paths)
+	got.Paths = normalizeLivePaths(got.Paths)
 	if *updateExpect {
 		writeExpectation(t, name, got)
 		return
@@ -236,7 +238,7 @@ func checkLiveExpectation(t *testing.T, name string, got expectation) {
 	if len(extra) > 0 {
 		t.Logf("new findings not in the golden set (add with -update-expect if they are right): %v", extra)
 	}
-	if len(want.Paths) > 0 {
+	if want.Paths = normalizeLivePaths(want.Paths); len(want.Paths) > 0 {
 		missing, extra := lo.Difference(want.Paths, got.Paths)
 		assert.LessOrEqualf(t, len(missing), len(want.Paths)/4,
 			"%d of %d golden paths in %s[%s] were not surfaced: %v", len(missing), len(want.Paths), expectFile, name, missing)
@@ -248,4 +250,22 @@ func checkLiveExpectation(t *testing.T, name string, got expectation) {
 		assert.GreaterOrEqualf(t, got.Records, want.Records*6/10,
 			"stored %d records, under 60%% of the golden %d in %s[%s]", got.Records, want.Records, expectFile, name)
 	}
+}
+
+// hashedBundle matches a bundler's content-hashed asset name at any depth
+// (/chunk-3CyVWL1v.js, /about.component-HWmrgSem.js, /rolldown-runtime-kqx1xuJ_.js):
+// an 8-character hash before the extension.
+var hashedBundle = regexp.MustCompile(`^(\S+ .*/[^/]+?)-[A-Za-z0-9_-]{8}\.(js|mjs|css)$`)
+
+// normalizeLivePaths replaces each content hash in a live app's bundle names
+// with `*`, so a golden set survives the image rebuilding its bundles: a new
+// Juice Shop release renames every chunk without changing what discovery
+// reaches. Sorted and deduplicated.
+func normalizeLivePaths(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, hashedBundle.ReplaceAllString(p, "$1-*.$2"))
+	}
+	sort.Strings(out)
+	return slices.Compact(out)
 }

@@ -9,9 +9,9 @@
 // HOME (template clone, Chrome for Testing) fails closed with a clear error.
 //
 // The CLI enables it in PersistentPreRunE; packages that write state consult
-// Stateless/StateDir. Known limitation: the embedded nuclei/uncover libraries
-// create their config directories at package init, before any flag is parsed
-// (docs/coding-agent.md).
+// Stateless/StateDir. The embedded nuclei/uncover libraries create their
+// config directories at package init, before any flag is parsed; only
+// VIGOLIUM_STATE_DIR moves them (state_dir.go, earlyenv).
 package paths
 
 import (

@@ -13,6 +13,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/deparos/waf"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/knownissuescan"
@@ -60,10 +61,14 @@ type phaseTracker struct {
 	// mu guards the outcome ledger. Marks arrive from goroutines the phase does
 	// not own — a deadline cancel func, an executor's worker teardown, a deferred
 	// writer shutdown — while the phase goroutine is reading them in finish.
-	mu         sync.Mutex
-	reasons    map[string]struct{}
-	limits     map[string]struct{}
-	notes      map[string]struct{}
+	mu      sync.Mutex
+	reasons map[string]struct{}
+	limits  map[string]struct{}
+	notes   map[string]struct{}
+	// noteModules are the module ids each note removed (noteCaveatModules).
+	noteModules map[string][]string
+	// explicit: the operator named this phase (markExplicit).
+	explicit   bool
 	errs       int
 	firstErr   string
 	skipped    bool
@@ -509,6 +514,39 @@ func (t *phaseTracker) noteCaveat(code string) {
 	addCode(&t.notes, code)
 }
 
+// noteCaveatModules records a note (noteCaveat) together with the module ids
+// it removed from the run, which the caveat names (PhaseOutcome.NoteModules).
+func (t *phaseTracker) noteCaveatModules(code string, ids []string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	addCode(&t.notes, code)
+	if len(ids) == 0 {
+		return
+	}
+	if t.noteModules == nil {
+		t.noteModules = make(map[string][]string)
+	}
+	set := make(map[string]struct{}, len(t.noteModules[code])+len(ids))
+	for _, id := range append(t.noteModules[code], ids...) {
+		set[id] = struct{}{}
+	}
+	t.noteModules[code] = database.SortedCodes(set)
+}
+
+// markExplicit records that the operator selected this phase by name, which
+// makes a no_inputs skip count against coverage (PhaseOutcome.BenignSkip).
+func (t *phaseTracker) markExplicit() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.explicit = true
+}
+
 // noteRateCeiling notes rate_ceiling on t when VIGOLIUM_RATE_CEILING lowered a
 // dial since the last phase took note: the clamps made while the scan was
 // resolved land on its first phase, a phase's own (its resolved rate) on that
@@ -668,8 +706,9 @@ func (t *phaseTracker) setCount(name string, n int64) {
 // phase.finished only when a stream is attached.
 //
 // status mapping: completed → "completed", partial → "curtailed", failed →
-// "failed", skipped → "completed" (with its reason, since a skipped phase is not
-// a degraded one). A phase whose own deadline fired now reports "curtailed"
+// "failed", skipped → "skipped" (with its reason: no_modules, no_inputs, or the
+// budget that ran out first). "completed" means the phase did work; a phase
+// that did none says so. A phase whose own deadline fired now reports "curtailed"
 // rather than "completed" — before, only the OUTER context was consulted, so a
 // per-phase max_duration that fired inside a healthy scan was invisible.
 func (t *phaseTracker) finish(ctx context.Context, err error) database.PhaseOutcome {
@@ -710,6 +749,8 @@ func (t *phaseTracker) finish(ctx context.Context, err error) database.PhaseOutc
 		status = scanevents.StatusFailed
 	case database.PhasePartial:
 		status = scanevents.StatusCurtailed
+	case database.PhaseSkipped:
+		status = scanevents.StatusSkipped
 	}
 	ev := scanevents.Event{
 		Type:         scanevents.TypePhaseFinished,
@@ -747,12 +788,19 @@ func (t *phaseTracker) outcome() database.PhaseOutcome {
 		Reasons:     database.SortedCodes(t.reasons),
 		Limits:      database.SortedCodes(t.limits),
 		Notes:       database.SortedCodes(t.notes),
+		Explicit:    t.explicit,
 		Errors:      t.errs,
 		Message:     t.firstErr,
 		Unprocessed: t.unacked,
 		DurationMS:  time.Since(t.start).Milliseconds(),
 	}
 	out.State = database.ResolvePhaseState(out.Errors, out.Reasons, t.skipped)
+	if len(t.noteModules) > 0 {
+		out.NoteModules = make(map[string][]string, len(t.noteModules))
+		for code, ids := range t.noteModules {
+			out.NoteModules[code] = slices.Clone(ids)
+		}
+	}
 	out.BudgetExhaustedHosts = database.SortedCodes(t.budgetHosts)
 	t.fillQuarantined(&out)
 	if t.hasPersist {
@@ -862,21 +910,36 @@ func (t *phaseTracker) recordError(err error) {
 // the machine stream. Both hang off the same notifier, so a consumer never has
 // to scrape a rendered session log to recover a block — which is what it had to
 // do before, at the cost of an N+1 subprocess walk per sweep.
+//
+// A block the generic phrase rule alone matched names no edge: it carries
+// block_kind "refused" and no vendor, never a placeholder vendor a consumer
+// would read as an edge.
 func emitBlockEvent(n http.BlockNotice) {
-	if !scanevents.On() {
-		return
+	if scanevents.On() {
+		scanevents.Emit(blockEvent(n))
 	}
-	vendor := n.WAFType
-	if vendor == "" || vendor == "generic" {
-		vendor = "unknown"
-	}
-	scanevents.Emit(scanevents.Event{
+}
+
+// blockEvent is the waf.block line for a notice.
+func blockEvent(n http.BlockNotice) scanevents.Event {
+	e := scanevents.Event{
 		Type:       scanevents.TypeWAFBlock,
 		Host:       n.Host,
-		Vendor:     vendor,
+		BlockKind:  n.Kind,
+		Transport:  n.Transport,
 		StatusCode: n.Status,
 		Detail:     "edge is filtering scan traffic — results for this host may be incomplete",
-	})
+	}
+	switch n.Kind {
+	case waf.KindRefused:
+		e.Detail = "refused with a generic block phrase and no vendor signature — the application's own refusal reads the same"
+	case waf.KindChallenge:
+		e.Vendor = n.WAFType
+		e.Detail = "edge is serving a challenge page — results for this host may be incomplete"
+	default:
+		e.Vendor = n.WAFType
+	}
+	return e
 }
 
 // emitPacingEvent mirrors [waf-pacing-armed] onto the machine stream, spelling

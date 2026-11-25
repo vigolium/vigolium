@@ -171,6 +171,8 @@ var projectOwnedTables = []string{
 	"oast_sessions",
 	// The coverage ledger is per (scan, record) of the project.
 	"scan_record_progress",
+	// Traffic the browser crawl observed beside its HTTP records.
+	"websocket_frames",
 }
 
 // ReassignProjectData moves all data owned by sourceUUID to targetUUID.

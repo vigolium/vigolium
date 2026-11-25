@@ -43,6 +43,7 @@ func init() {
 	registerInputSourceFlags(flags)
 	registerAllRecordsFlag(flags)
 	registerScanRecordUUIDFlag(flags)
+	registerOnlyNewSinceFlag(flags)
 	registerHTTPClientFlags(flags)
 	registerScanModuleFlags(flags)
 	registerModuleSelectionFlags(flags)
@@ -185,6 +186,7 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	scanOpts.OnlyPhase = globalOnly
 	scanOpts.SkipPhases = globalSkipPhases
 	recordUUIDDefaultPhase()
+	onlyNewSinceDefaults()
 	scanOpts.ScopeOriginMode = globalScopeOrigin
 	// -o's extension may pick the format, and under -j it may name the
 	// document file; settled before the formats are parsed.
@@ -473,6 +475,9 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	if err := applyScanRecordRefs(scanContext(cmd)); err != nil {
 		return err
 	}
+	if err := applyOnlyNewSince(scanContext(cmd)); err != nil {
+		return err
+	}
 	if err := prefetchScanStdin(); err != nil {
 		return err
 	}
@@ -494,6 +499,13 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	// -i with no -t: scope to the input's primary host instead of every host
 	// the file names. Before --dry-run so the plan shows it.
 	deriveFileInputScope(settings, scanOpts)
+
+	// The scope gate: a seeded target the configured scope refuses ends the
+	// command here (exit 2 out_of_scope), before the plan and before anything
+	// is sent.
+	if err := scanEntryScopeGate(settings, scanOpts, cmd != nil && cmd.Flags().Changed("input-mode")); err != nil {
+		return err
+	}
 
 	// --dry-run: resolve and print the plan, then stop — before any fan-out,
 	// scan uuid, scan row, output file, wordlist, login or OAST registration.

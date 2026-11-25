@@ -45,36 +45,45 @@ const CaveatModuleErrors = "module_errors"
 // caveatMessages phrase the codes a reader most needs explained. Codes absent
 // here are rendered generically.
 var caveatMessages = map[string]string{
-	ReasonEdgeBlocked:        "a WAF/CDN edge blocked requests; results for these hosts may be incomplete",
-	ReasonPhaseDeadline:      "the phase hit its time limit before covering all its input",
-	ReasonScanBudget:         "the total scan time budget ran out",
-	ReasonRequestBudget:      "the request budget (--max-requests) ran out",
-	ReasonCancelled:          "the scan was interrupted",
-	ReasonUserStopped:        "the scan was stopped on request before it finished",
-	ReasonTargetsUnreachable: "some targets did not answer",
-	ReasonTargetsFailed:      "some targets errored",
-	ReasonTargetsSkipped:     "some targets were never attempted",
-	ReasonFeedbackDropped:    "discovered endpoints were dropped from the feedback queue and not tested",
-	ReasonAuthUnavailable:    "configured authentication could not be applied; the phase ran unauthenticated",
-	ReasonAuthUnverified:     "a session's login could not be verified",
-	ReasonAuthLost:           "the session expired mid-scan and re-login did not restore it",
-	ReasonBrowserUnavailable: "the crawl browser failed to launch",
-	ReasonOASTUnavailable:    "out-of-band checks did not run",
-	ReasonInputIncomplete:    "the phase stopped before its input was exhausted",
-	LimitFindingsPerModule:   "findings past --max-findings-per-module were not reported",
-	LimitHostRequestBudget:   "hosts used their whole --max-requests-per-host",
-	CaveatModuleErrors:       "modules errored; their checks may be incomplete",
-	LimitRateCeiling:         "VIGOLIUM_RATE_CEILING held a rate or concurrency below what the scan was configured for (each lowered dial is printed on stderr)",
+	ReasonEdgeBlocked:                 "a WAF/CDN edge blocked requests; results for these hosts may be incomplete",
+	ReasonPhaseDeadline:               "the phase hit its time limit before covering all its input",
+	ReasonScanBudget:                  "the total scan time budget ran out",
+	ReasonRequestBudget:               "the request budget (--max-requests) ran out",
+	ReasonCancelled:                   "the scan was interrupted",
+	ReasonUserStopped:                 "the scan was stopped on request before it finished",
+	ReasonTargetsUnreachable:          "some targets did not answer",
+	ReasonTargetsFailed:               "some targets errored",
+	ReasonTargetsSkipped:              "some targets were never attempted",
+	ReasonFeedbackDropped:             "discovered endpoints were dropped from the feedback queue and not tested",
+	ReasonAuthUnavailable:             "configured authentication could not be applied; the phase ran unauthenticated",
+	ReasonAuthUnverified:              "a session's login could not be verified",
+	ReasonAuthLost:                    "the session expired mid-scan and re-login did not restore it",
+	ReasonBrowserUnavailable:          "the crawl browser failed to launch",
+	ReasonOASTUnavailable:             "out-of-band checks did not run",
+	ReasonInputIncomplete:             "the phase stopped before its input was exhausted",
+	LimitFindingsPerModule:            "findings past --max-findings-per-module were not reported",
+	LimitHostRequestBudget:            "hosts used their whole --max-requests-per-host",
+	CaveatModuleErrors:                "modules errored; their checks may be incomplete",
+	LimitRateCeiling:                  "VIGOLIUM_RATE_CEILING held a rate or concurrency below what the scan was configured for (each lowered dial is printed on stderr)",
+	ReasonNoInputs:                    "the phase had nothing to assess: it admitted zero inputs",
+	LimitOASTDisabled:                 "OAST is off (oast.enabled false or --offline): out-of-band checks were not planted",
+	LimitModuleTierCapped:             "modules above the max module tier were not run",
+	LimitRiskyPayloadsDisabled:        "risk:high modules were withheld (--allow-risky-payloads runs them)",
+	LimitTemplatesSkippedUnsafeMethod: "stored write templates (POST/PUT/PATCH/DELETE first stored without a response) were not sent; --allow-writes sends them",
 }
 
 // CoverageCaveats turns a scan's outcome into the caveats a reader should see
 // next to its findings, in phase order then code order. moduleErrors is the
 // per-module error tally (scans.module_errors). Phases skipped for having
-// nothing to do contribute nothing (PhaseOutcome.BenignSkip).
+// nothing to do contribute no reasons (PhaseOutcome.BenignSkip); their notes
+// still count, because a capability switched off is true of the run whether or
+// not the phase found work (a tier cap that removed every module is why the
+// phase had none).
 func CoverageCaveats(c ScanCompletion, moduleErrors map[string]int64) []Caveat {
 	var out []Caveat
 	for _, p := range c.Phases {
 		if p.BenignSkip() {
+			out = append(out, phaseNoteCaveats(p)...)
 			continue
 		}
 		for _, reason := range p.Reasons {
@@ -102,9 +111,7 @@ func CoverageCaveats(c ScanCompletion, moduleErrors map[string]int64) []Caveat {
 			cv.Message = caveatMessage(reason)
 			out = append(out, cv)
 		}
-		for _, note := range p.Notes {
-			out = append(out, Caveat{Code: note, Phase: p.Phase, Message: caveatMessage(note)})
-		}
+		out = append(out, phaseNoteCaveats(p)...)
 		if len(p.FindingsCapped) > 0 {
 			cv := Caveat{Code: LimitFindingsPerModule, Phase: p.Phase, Message: caveatMessage(LimitFindingsPerModule)}
 			cv.Modules, cv.Count = rankModules(p.FindingsCapped)
@@ -118,6 +125,25 @@ func CoverageCaveats(c ScanCompletion, moduleErrors map[string]int64) []Caveat {
 	if len(moduleErrors) > 0 {
 		cv := Caveat{Code: CaveatModuleErrors, Message: caveatMessage(CaveatModuleErrors)}
 		cv.Modules, cv.Count = rankModules(moduleErrors)
+		out = append(out, cv)
+	}
+	return out
+}
+
+// phaseNoteCaveats is one caveat per note on p, naming the modules the note
+// removed (PhaseOutcome.NoteModules) when it removed any.
+func phaseNoteCaveats(p PhaseOutcome) []Caveat {
+	var out []Caveat
+	for _, note := range p.Notes {
+		cv := Caveat{Code: note, Phase: p.Phase, Message: caveatMessage(note)}
+		if ids := p.NoteModules[note]; len(ids) > 0 {
+			cv.Modules = append([]string(nil), ids...)
+			cv.Count = int64(len(ids))
+		} else if n := p.Counts[note]; n > 0 {
+			// A note that counts items rather than modules keeps its tally
+			// under its own code (templates_skipped_unsafe_method).
+			cv.Count = n
+		}
 		out = append(out, cv)
 	}
 	return out

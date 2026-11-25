@@ -71,11 +71,15 @@ func beginScanEventStream(db *database.DB, opts *types.Options, settings *config
 		Project:   opts.ProjectUUID,
 		Pace:      &globalPace,
 		PhasePace: phasePace,
+		// Config pace values a running phase does not enforce (warned about).
+		PaceIgnored: configPaceIgnored(settings, opts),
 		// Which outbound paths the rate limit and host slots govern, and which
 		// they do not (and why), for the phases this scan runs.
 		Egress: egress.Inventory(phases),
 		// The request budgets in force; zeros are written (0 = unlimited).
 		Budgets: &scanevents.Budgets{MaxRequests: opts.MaxRequests, MaxRequestsPerHost: opts.MaxRequestsPerHost},
+		// --caller-tag / VIGOLIUM_CALLER_TAG, as stored on the scan row.
+		CallerTags: callerTagMap(callerTagsOf(opts)),
 	}
 	// How strictly a budget holds for each phase's traffic, when one is set.
 	if opts.MaxRequests > 0 || opts.MaxRequestsPerHost > 0 {
@@ -278,6 +282,8 @@ func applyScanCompletion(ev *scanevents.Event, scan *database.Scan) {
 	if len(scan.ModuleErrors) > 0 {
 		ev.ModuleErrors = scan.ModuleErrors
 	}
+	// The per-module ledger, persisted beside the error totals.
+	ev.ModuleStats = moduleStatsView(scan.ModuleStats)
 	for _, c := range database.CoverageCaveats(database.ScanCompletion{Phases: scan.PhaseOutcomes}, scan.ModuleErrors) {
 		ev.Caveats = append(ev.Caveats, scanevents.Caveat(c))
 	}

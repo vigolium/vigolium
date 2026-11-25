@@ -107,9 +107,23 @@ func TestIsEdgeBlockedResponse(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "cloudfront 502 error page is the edge",
+			// An origin-failure page is the edge reporting an unreachable
+			// origin, not a block: no signature row applies on a 502.
+			name: "cloudfront 502 origin-failure page is not an edge block",
 			raw:  "HTTP/1.1 502 Bad Gateway\r\nServer: CloudFront\r\nContent-Type: text/html\r\n\r\n<H1>502 ERROR</H1>The request could not be satisfied.",
-			want: true,
+			want: false,
+		},
+		{
+			// Imperva's sensor script rides its ordinary pages: never a
+			// challenge, and a block only beside Imperva's header.
+			name: "incapsula resource on a 200 is not an edge block",
+			raw:  "HTTP/1.1 200 OK\r\nX-Iinfo: 1-2-3\r\nContent-Type: text/html\r\n\r\n<script src=\"/_Incapsula_Resource?SWJIYLWA=719d\"></script>",
+			want: false,
+		},
+		{
+			name: "cf-mitigated with another value is not a challenge",
+			raw:  "HTTP/1.1 200 OK\r\nCf-Mitigated: block\r\n\r\n<html></html>",
+			want: false,
 		},
 		{
 			// Vendor block-page markers count only beside the vendor's header:

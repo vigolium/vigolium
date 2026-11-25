@@ -451,6 +451,12 @@
         "tier_filtered": {
           "type": "integer"
         },
+        "max_module_tier": {
+          "type": "string"
+        },
+        "tier_capped": {
+          "type": "integer"
+        },
         "hygiene_suppressed": {
           "type": "integer"
         },
@@ -497,6 +503,7 @@
         "extensions",
         "tier_ceiling",
         "tier_filtered",
+        "tier_capped",
         "hygiene_suppressed",
         "risk_gated",
         "risky_payloads_allowed",

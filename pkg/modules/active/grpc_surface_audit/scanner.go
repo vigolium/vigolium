@@ -6,17 +6,20 @@
 //
 // Scope today: two checks over gRPC-Web framing (see checks.go):
 //
-//	A. Reflection / health service existence probe (Info).
+//	A. Reflection / health service existence probe (Info). A present reflection
+//	   service is asked for its catalog — ListServices, then each service's file
+//	   descriptor — and the decoded services and methods (path, input/output
+//	   type names, streaming) ride on the finding as metadata.services.
 //	B. Missing-authorization replay on idempotent read RPCs (High, the primary
 //	   finding), multi-round confirmed.
 //
 // Explicit, DOCUMENTED follow-ups (NOT implemented here — each needs the two
 // forbidden dependencies and so is out of scope for the pure-Go codec):
 //
-//	C. Descriptor-guided input testing: pull the protobuf FileDescriptorSet from
-//	   server reflection, decode it with google.golang.org/protobuf, and fuzz
-//	   typed fields (oversize, boundary, enum, oneof) per method. Requires
-//	   protobuf descriptor parsing.
+//	C. Descriptor-guided input testing: decode the message types of the
+//	   descriptors reflection returns and fuzz typed fields (oversize, boundary,
+//	   enum, oneof) per method. The catalog reads service and method names and
+//	   type names only; field-level decoding needs a fuller descriptor reader.
 //	D. Resource-limit / DoS checks: oversized length-prefixed messages, deeply
 //	   nested messages, and streaming-flood behavior — needs a real protobuf
 //	   encoder to build well-formed adversarial messages.
@@ -184,6 +187,8 @@ type replayResult struct {
 	decoded    bool   // response decoded as a valid gRPC-Web body
 	rawReq     string // raw request sent (for evidence)
 	rawResp    string // full raw response (for evidence)
+	// messages are the message (non-trailer) frames' payloads, in order.
+	messages [][]byte
 }
 
 // grpcSuccess reports a decoded gRPC-Web response whose call succeeded
@@ -248,6 +253,7 @@ func (m *Module) executeRaw(
 		if !f.Trailer {
 			rr.dataLen += len(f.Data)
 			h.Write(f.Data)
+			rr.messages = append(rr.messages, f.Data)
 		}
 	}
 	rr.dataHash = hex.EncodeToString(h.Sum(nil))

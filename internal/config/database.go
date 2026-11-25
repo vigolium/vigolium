@@ -12,11 +12,13 @@ type DatabaseConfig struct {
 	SQLite   SQLiteConfig   `yaml:"sqlite"`
 	Postgres PostgresConfig `yaml:"postgres"`
 
-	// AutoMigrateOnRead lets a read command (traffic, finding, log, db ls, …)
-	// bring a store written by an older vigolium up to date before reading it.
-	// When false, such a read fails with schema_outdated and the remedy
-	// `vigolium db migrate`. Default true for one release (decision D23), after
-	// which reads will require the explicit migrate.
+	// AutoMigrateOnRead lets any command, read or write, bring a store written
+	// by an older vigolium up to date when it opens it. Off by default: an
+	// outdated store is refused with schema_outdated and the remedy
+	// `vigolium db migrate --db <path>`, so a migration (which can be O(rows)
+	// and leaves the file unreadable by the older binary) never runs inside a
+	// caller's deadline unasked. VIGOLIUM_AUTO_MIGRATE overrides it; read it
+	// through MigratesImplicitly.
 	AutoMigrateOnRead bool `yaml:"auto_migrate_on_read"`
 
 	// ReadIntent opens a read pool rather than the read-write store: SQLite gets
@@ -63,12 +65,26 @@ type PostgresConfig struct {
 	ConnMaxLifetime string `yaml:"conn_max_lifetime"`
 }
 
+// AutoMigrateEnvVar overrides database.auto_migrate_on_read: truthy values
+// (1, true, yes, on) let an open migrate an outdated store, falsy values
+// (0, false, no, off) refuse it. Unset means "use the YAML config".
+const AutoMigrateEnvVar = "VIGOLIUM_AUTO_MIGRATE"
+
+// MigratesImplicitly reports whether opening an outdated store may migrate
+// it: VIGOLIUM_AUTO_MIGRATE when set to a recognised value, else
+// auto_migrate_on_read.
+func (c *DatabaseConfig) MigratesImplicitly() bool {
+	if v, ok := envBoolOverride(AutoMigrateEnvVar); ok {
+		return v
+	}
+	return c.AutoMigrateOnRead
+}
+
 // DefaultDatabaseConfig returns default configuration
 func DefaultDatabaseConfig() *DatabaseConfig {
 	return &DatabaseConfig{
-		Enabled:           true,
-		Driver:            "sqlite",
-		AutoMigrateOnRead: true,
+		Enabled: true,
+		Driver:  "sqlite",
 		SQLite: SQLiteConfig{
 			Path:         "~/.vigolium/database-vgnm.sqlite",
 			BusyTimeout:  15000,

@@ -43,6 +43,14 @@ const (
 	LocationQuery Location = "query" // appended to the URL query string
 	LocationForm  Location = "form"  // appended to an application/x-www-form-urlencoded body
 	LocationJSON  Location = "json"  // added as top-level keys of a JSON object body
+	// LocationHeader sends each name as a request header carrying its canary
+	// value. Never inferred from the request: --location header asks for it.
+	LocationHeader Location = "header"
+	// LocationCookie sends each name as a cookie carrying its canary value,
+	// merged into the request's Cookie header beside the cookies it already
+	// sends (a session is never replaced). Never inferred from the request:
+	// --location cookie asks for it.
+	LocationCookie Location = "cookie"
 )
 
 // Signal is the observable difference that revealed a parameter.
@@ -75,6 +83,18 @@ const (
 	DefaultConfirmRounds    = 2
 	DefaultBlockBurst       = 3
 	DefaultMaxNamesPerChunk = 256
+	// DefaultMaxHeaderBytes caps the bytes a header chunk adds, and
+	// DefaultMaxHeadersPerChunk the header fields a request carries in all.
+	// Servers bound both (nginx answers 400 past an 8 KiB header buffer, Apache
+	// past LimitRequestFields 100 fields), and a 400 from too many headers
+	// would read as a signal.
+	DefaultMaxHeaderBytes     = 4 << 10
+	DefaultMaxHeadersPerChunk = 60
+	// DefaultMaxCookieHeaderBytes caps a mining request's whole Cookie header,
+	// the cookies the request already sends included: past an 8 KiB header
+	// line nginx answers 400, which would read as a signal. A cookie chunk
+	// adds at most MaxHeaderBytes, and only the room this leaves.
+	DefaultMaxCookieHeaderBytes = 6 << 10
 
 	// maxErrorRun is how many consecutive transport errors end the endpoint.
 	maxErrorRun = 3
@@ -96,6 +116,8 @@ type Config struct {
 	MaxQueryBytes int
 	// MaxBodyBytes caps the body of a form or JSON chunk.
 	MaxBodyBytes int
+	// MaxHeaderBytes caps what a header-location chunk adds to the request.
+	MaxHeaderBytes int
 	// MaxNamesPerChunk caps the names in one chunk regardless of size; many
 	// stacks drop parameters past a count (PHP max_input_vars).
 	MaxNamesPerChunk int
@@ -118,6 +140,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaxBodyBytes <= 0 {
 		c.MaxBodyBytes = DefaultMaxBodyBytes
+	}
+	if c.MaxHeaderBytes <= 0 {
+		c.MaxHeaderBytes = DefaultMaxHeaderBytes
 	}
 	if c.MaxNamesPerChunk <= 0 {
 		c.MaxNamesPerChunk = DefaultMaxNamesPerChunk

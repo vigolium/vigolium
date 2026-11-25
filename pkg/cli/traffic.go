@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -184,10 +185,12 @@ func init() {
 	pf.StringVar(&trafficExcludeBody, "exclude-body", "", "Exclude records whose request/response body contains the term (inverse of --body; bodies only, not headers)")
 	pf.StringVar(&trafficSource, "source", "", "Filter by record source (e.g. burp, caido, scanner, probe, ingest-cli, ingest-server, ingest-proxy, seed)")
 	pf.StringVar(&trafficScanUUID, "scan-uuid", "", "Only records first stored by this scan (http_records.scan_uuid; a record deduplicated against an earlier scan keeps that scan's uuid)")
+	registerTrafficTagFlag(pf)
 	pf.StringVar(&trafficSort, "sort", "created_at", "Sort by: uuid, created_at, sent_at, method, status, time")
 	pf.BoolVar(&trafficAsc, "asc", false, "Sort in ascending order (default: descending)")
 	pf.IntVarP(&trafficLimit, "limit", "n", 100, "Maximum records to display")
 	pf.IntVar(&trafficOffset, "offset", 0, "Number of records to skip (for pagination)")
+	registerListCursorFlag(pf, &trafficCursor)
 
 	// Display-only flags
 	f := trafficCmd.Flags()
@@ -307,6 +310,9 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if err := validateTrafficCurlFlags(cmd); err != nil {
+		return err
+	}
+	if err := validateListCursorFlags(trafficCursor, trafficOffset); err != nil {
 		return err
 	}
 
@@ -434,13 +440,21 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 		if tuiErr != nil {
 			return tuiErr
 		}
-		records, total, err := queryTrafficRecords(ctx, db, filters, rendersRaw, trafficBurpBridgeURL)
+		records, total, page, cursorOver, err := pageTrafficRecords(ctx, db, filters, rendersRaw, trafficBurpBridgeURL)
 		if err != nil {
+			// A refused --cursor is the caller's mistake, not a failed query.
+			var usage usageError
+			if errors.As(err, &usage) {
+				return err
+			}
 			return fmt.Errorf("failed to query database: %w", err)
 		}
 		var excluded int
 		if trafficExcludeNotFound {
 			records, excluded = dropNotFoundRecords(newNotFoundMatcher(ctx, db, filters.ProjectUUID), records)
+		}
+		if cursorOver != nil {
+			page.after = cursorOver(records)
 		}
 		// An empty --scan-uuid read is explained, not left to read as "this scan
 		// stored nothing" (see scanProvenanceWarning).
@@ -464,6 +478,7 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 			if trafficExcludeNotFound {
 				provenance = append(provenance, withExtra("not_found_excluded", excluded))
 			}
+			provenance = append(provenance, pageEnvOpts(page))
 			return displayJSON(ctx, cmd, db, records, total, trafficOffset, trafficLimit, provenance...)
 		}
 		if trafficTSV {
@@ -546,6 +561,10 @@ func buildTrafficFilters(fuzzyTerm string) (database.QueryFilters, error) {
 	if err != nil {
 		return database.QueryFilters{}, err
 	}
+	tags, err := parseTagFilterFlag(trafficTags)
+	if err != nil {
+		return database.QueryFilters{}, err
+	}
 
 	// --all lifts the cap: a zero Limit means "no LIMIT clause" in the query.
 	limit := trafficLimit
@@ -563,6 +582,7 @@ func buildTrafficFilters(fuzzyTerm string) (database.QueryFilters, error) {
 		PathPattern:         trafficPath,
 		Source:              trafficSource,
 		ScanUUID:            strings.TrimSpace(trafficScanUUID),
+		Tags:                tags,
 		DateFrom:            dateFrom,
 		DateTo:              dateTo,
 		FuzzyTerm:           fuzzyTerm,

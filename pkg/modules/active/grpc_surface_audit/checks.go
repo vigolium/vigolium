@@ -25,15 +25,22 @@ const grpcStatusUnimplemented = "12"
 const grpcStatusOK = "0"
 
 // reflectionHealthPaths are the well-known gRPC services whose presence reveals
-// an enumerable / debug surface. We probe existence only; parsing the protobuf
-// descriptors that reflection returns is a documented follow-up (see scanner.go).
+// an enumerable / debug surface: server reflection (v1, then v1alpha) and
+// health. A present reflection service is then asked for its catalog
+// (reflectionCatalog).
 var reflectionHealthPaths = []struct {
-	path string
-	name string
+	path       string
+	name       string
+	reflection bool
 }{
-	{"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo", "server reflection"},
-	{"/grpc.health.v1.Health/Check", "health"},
+	{grpcweb.ReflectionPaths[0], "server reflection", true},
+	{grpcweb.ReflectionPaths[1], "server reflection", true},
+	{"/grpc.health.v1.Health/Check", "health", false},
 }
+
+// maxReflectionServices caps the file_containing_symbol lookups one catalog
+// sends (one request per service).
+const maxReflectionServices = 32
 
 // ---------------------------------------------------------------------------
 // Check A: reflection / health existence probe (Info)
@@ -69,7 +76,11 @@ func (m *Module) checkReflectionHealth(
 		}
 
 		endpoint := u.Scheme + "://" + u.Host + svc.path
-		return &output.ResultEvent{
+		var catalog []grpcweb.ReflectionService
+		if svc.reflection {
+			catalog = m.reflectionCatalog(ctx, httpClient, svc.path)
+		}
+		ev := &output.ResultEvent{
 			ModuleID:         ModuleID,
 			Host:             u.Host,
 			URL:              endpoint,
@@ -91,8 +102,94 @@ func (m *Module) checkReflectionHealth(
 				Tags:        ModuleTags,
 			},
 		}
+		if len(catalog) > 0 {
+			methods := 0
+			for _, s := range catalog {
+				methods += len(s.Methods)
+				for _, mt := range s.Methods {
+					ev.ExtractedResults = append(ev.ExtractedResults, fmt.Sprintf("rpc %s(%s) returns (%s)%s",
+						mt.Path, mt.InputType, mt.OutputType, streamingNote(mt)))
+				}
+				if len(s.Methods) == 0 {
+					ev.ExtractedResults = append(ev.ExtractedResults, "service "+s.Name+" (no descriptor returned)")
+				}
+			}
+			ev.Metadata["services"] = catalog
+			ev.Metadata["service_count"] = len(catalog)
+			ev.Metadata["method_count"] = methods
+			ev.Info.Description += fmt.Sprintf(" Reflection listed %d service(s) and %d method(s); metadata.services holds the catalog.", len(catalog), methods)
+		}
+		return ev
 	}
 	return nil
+}
+
+// streamingNote renders a method's streaming shape for the extracted line.
+func streamingNote(m grpcweb.ReflectionMethod) string {
+	switch {
+	case m.ClientStreaming && m.ServerStreaming:
+		return " [bidi-streaming]"
+	case m.ClientStreaming:
+		return " [client-streaming]"
+	case m.ServerStreaming:
+		return " [server-streaming]"
+	}
+	return ""
+}
+
+// reflectionCatalog asks a present reflection service for its service list,
+// then for each service's file descriptor, and decodes the services and
+// methods. A step that fails leaves what earlier steps learned: a list with no
+// descriptors still names the services. nil when the list itself fails.
+func (m *Module) reflectionCatalog(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, path string) []grpcweb.ReflectionService {
+	listResp, ok := m.reflectionCall(ctx, httpClient, path, grpcweb.EncodeListServicesRequest())
+	if !ok || len(listResp.Services) == 0 {
+		return nil
+	}
+	var described []grpcweb.ReflectionService
+	seen := map[string]bool{}
+	for i, name := range listResp.Services {
+		if i >= maxReflectionServices {
+			break
+		}
+		if seen[name] {
+			continue
+		}
+		resp, ok := m.reflectionCall(ctx, httpClient, path, grpcweb.EncodeFileContainingSymbolRequest(name))
+		if !ok {
+			continue
+		}
+		for _, fd := range resp.FileDescriptors {
+			svcs, err := grpcweb.DecodeFileDescriptorServices(fd)
+			if err != nil {
+				continue
+			}
+			for _, s := range svcs {
+				seen[s.Name] = true
+			}
+			described = append(described, svcs...)
+		}
+	}
+	return grpcweb.MergeServices(listResp.Services, described)
+}
+
+// reflectionCall sends one ServerReflectionRequest and decodes the first
+// response message. ok is false on a transport failure, a non-gRPC-Web reply,
+// no message frame, an undecodable message or a reflection error response.
+func (m *Module) reflectionCall(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, path string, req []byte) (grpcweb.ReflectionResponse, bool) {
+	raw, err := buildProbeRaw(ctx.Request().Raw(), path, grpcweb.EncodeFrame(false, req))
+	if err != nil {
+		return grpcweb.ReflectionResponse{}, false
+	}
+	res, ok := m.executeRaw(ctx, httpClient, raw)
+	if !ok || len(res.messages) == 0 {
+		return grpcweb.ReflectionResponse{}, false
+	}
+	out, err := grpcweb.DecodeReflectionResponse(res.messages[0])
+	if err != nil || out.ErrorCode != 0 {
+		return grpcweb.ReflectionResponse{}, false
+	}
+	return out, true
 }
 
 // probeResult is a single reflection/health existence verdict.

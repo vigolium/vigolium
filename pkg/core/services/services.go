@@ -1,6 +1,8 @@
 package services
 
 import (
+	"net/netip"
+
 	"github.com/projectdiscovery/fastdialer/fastdialer"
 	"github.com/vigolium/vigolium/pkg/core/egress"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
@@ -46,21 +48,34 @@ type Services struct {
 	// DedupManager manages deduplication for modules
 	DedupManager *dedup.Manager
 
-	// HopScope, when non-nil, reports whether a redirect hop's host is inside
-	// the scan's scope. The requester's in-scope redirect mode (the default)
-	// follows a hop only when it returns true; with no HopScope it falls back to
-	// same-apex. Set it before the requester sends its first request (the runner
-	// installs ScopeMatcher.HostInScope right after building the matcher); it is
-	// read, never written, while traffic flows.
-	HopScope func(host string) bool
+	// SendScope, when non-nil, is the scope the requester enforces at send
+	// time (pkg/http sendGuard): every request it sends and every redirect hop
+	// it follows is judged against it before anything leaves, and the
+	// in-scope redirect mode (the default) follows a hop only to a host it
+	// admits. With no SendScope nothing is judged and in-scope falls back to
+	// same-apex. Set it before the requester sends its first request (the
+	// runner installs its scope matcher right after building it); it is read,
+	// never written, while traffic flows.
+	SendScope SendScope
 }
 
-// HopScopeFunc returns s.HopScope, nil-safe.
-func (s *Services) HopScopeFunc() func(host string) bool {
+// SendScope is the scope as a sender applies it (config.ScopeMatcher
+// implements it): RejectHost judges a host name (host rule, origin mode,
+// scope.cidr for an IP literal) and RejectAddress the rest of a destination
+// (port, explicit path exclusions, scope.cidr.exclude, and the private-address
+// and instance-metadata blocks over the addresses the host resolves to). Each
+// returns the refusing rule and pattern, "" when admitted.
+type SendScope interface {
+	RejectHost(host string) (rule, pattern string)
+	RejectAddress(host string, port int, path string, addrs []netip.Addr) (rule, pattern string)
+}
+
+// SendScopeOf returns s.SendScope, nil-safe.
+func (s *Services) SendScopeOf() SendScope {
 	if s == nil {
 		return nil
 	}
-	return s.HopScope
+	return s.SendScope
 }
 
 // EgressGate returns the gate that applies these Services' rate limiter, host

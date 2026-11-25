@@ -19,11 +19,11 @@ var dbMigrateCmd = &cobra.Command{
 	Short: "Upgrade the database schema to this vigolium's version",
 	Long: `Bring the database up to the schema this vigolium expects, and report what changed.
 
-Read commands (traffic, finding, log, db ls, ...) open a read-only pool and never
-take the write lock. When they meet a store written by an older vigolium they
-migrate it first through a short-lived writer, as long as
-database.auto_migrate_on_read is true (the default for this release). With it
-off they fail with error.code "schema_outdated" and point here.
+No command migrates a store implicitly. A read or a write command that meets a
+store written by an older vigolium fails with error.code "schema_outdated" and
+points here, so the migration (whose backfills grow with the store) runs when
+you choose, never inside a scan's deadline. Set VIGOLIUM_AUTO_MIGRATE=1 (or
+database.auto_migrate_on_read: true) to let opens migrate instead.
 
 A store a newer vigolium already migrated is refused with "schema_too_new":
 upgrade vigolium instead.`,

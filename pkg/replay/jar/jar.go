@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"golang.org/x/net/publicsuffix"
+
+	"github.com/vigolium/vigolium/internal/paths"
 )
 
 // PersistentJar wraps a stdlib cookiejar.Jar with disk-backed
@@ -180,18 +182,11 @@ func (j *PersistentJar) Load() (int, error) {
 	return loaded, nil
 }
 
-// DefaultDir returns the directory replay jars live in. Honours
-// VIGOLIUM_HOME if set; otherwise defaults to ~/.vigolium/replay-jars/.
-// Returns "" if neither can be resolved.
+// DefaultDir returns the directory replay jars live in: replay-jars/ under
+// the state root (VIGOLIUM_STATE_DIR, else ~/.vigolium). Returns "" if
+// neither can be resolved.
 func DefaultDir() string {
-	if v := os.Getenv("VIGOLIUM_HOME"); v != "" {
-		return filepath.Join(v, "replay-jars")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".vigolium", "replay-jars")
+	return paths.VigoliumPath("replay-jars")
 }
 
 // PathFor returns the on-disk path for a given session-id under

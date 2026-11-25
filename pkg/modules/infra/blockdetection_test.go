@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -114,10 +115,12 @@ func TestValidate_ChallengeAndBlockPages(t *testing.T) {
 			wantBlock: true,
 		},
 		{
-			name:      "200 challenge via cdn-cgi challenge-platform body marker",
+			// Cloudflare's JS-detection injector loads from this path on
+			// ordinary pages: the path alone is not a challenge.
+			name:      "200 page loading the cdn-cgi challenge-platform path is not a block",
 			status:    200,
-			body:      `<script src="/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1"></script>`,
-			wantBlock: true,
+			body:      `<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>`,
+			wantBlock: false,
 		},
 		{
 			name:      "202 challenge via _cf_chl_opt body marker",
@@ -152,6 +155,36 @@ func TestValidate_ChallengeAndBlockPages(t *testing.T) {
 			err := v.Validate(rc)
 			if (err != nil) != tt.wantBlock {
 				t.Fatalf("Validate() err = %v, wantBlock = %v", err, tt.wantBlock)
+			}
+		})
+	}
+}
+
+// TestValidate_ReconciledSignatures pins, through this path, the cases where
+// the classifiers the shared table replaced disagreed: the stricter reading
+// holds (waf.Signatures documents each resolution).
+func TestValidate_ReconciledSignatures(t *testing.T) {
+	v := GetBlockDetectionValidator()
+	incapsula := `<script src="/_Incapsula_Resource?SWJIYLWA=719d"></script>`
+	cases := []struct {
+		name   string
+		status int
+		header http.Header
+		body   string
+		want   error
+	}{
+		{"incapsula resource on a 200", 200, http.Header{"X-Iinfo": {"1-2-3"}}, incapsula, nil},
+		{"incapsula resource on a 403 without imperva", 403, nil, incapsula, nil},
+		{"incapsula resource on a 403 behind imperva", 403, http.Header{"X-Iinfo": {"1-2-3"}}, incapsula, ErrEdgeBlock},
+		{"cf-mitigated with another value", 200, http.Header{"Cf-Mitigated": {"block"}}, "<html></html>", nil},
+		{"cf-mitigated challenge on a 403", 403, http.Header{"Cf-Mitigated": {"challenge"}}, "", ErrChallengePage},
+		{"generic 403 phrase is not an edge", 403, nil, "<h1>Forbidden</h1>", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := v.Validate(fillResponseChain(t, c.status, c.header, c.body))
+			if c.want == nil && err != nil || c.want != nil && !errors.Is(err, c.want) {
+				t.Fatalf("Validate() = %v, want %v", err, c.want)
 			}
 		})
 	}

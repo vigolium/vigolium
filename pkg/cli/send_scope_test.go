@@ -38,6 +38,7 @@ func TestSendScopeGateAcrossSenders(t *testing.T) {
 	cases := map[string][]string{
 		"replay -i":      {"replay", "-i", "curl " + srv.URL + "/x", "-j"},
 		"kit param-mine": {"kit", "param-mine", srv.URL + "/x", "-j", "--max-requests", "5"},
+		"kit h2-probe":   {"kit", "h2-probe", srv.URL + "/x", "--h2c", "-j"},
 		"fuzz":           {"fuzz", "-i", reqFile, "-t", srv.URL, "--fuzz", "params", "-p", "a", "-j"},
 		"dns":            {"dns", "127.0.0.1.nip.io", "-j"},
 	}

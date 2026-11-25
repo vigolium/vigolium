@@ -121,6 +121,7 @@ var flagVocabAllowed = map[string]string{
 	"type:only":           "--only is phases on the scans, record types on export and check names on doctor",
 	"type:rate-limit":     "the scan family's dial takes a phase qualifier; fuzz and finding verify accept fractions; param-mine an int",
 	"type:record-uuid":    "one record on the commands that send or read one; repeatable where a scan or swarm takes several",
+	"type:redact":         "the global --redact is the -j view switch; import --redact names what to mask in the rows it stores (credentials)",
 	"type:remark":         "db list --remark is one filter term; endpoints/params take a repeatable list",
 	"type:request":        "traffic body/headers --request selects the request side; fuzz --request is the method (-X)",
 	"type:resume":         "scan --resume continues the last run; agent autopilot --resume names the session to continue",

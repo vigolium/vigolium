@@ -132,6 +132,33 @@ func applyEvidenceExclusion(q *bun.SelectQuery) *bun.SelectQuery {
 	return q.Where("COALESCE(source, '') NOT IN (?)", bun.List(EvidenceRecordSources))
 }
 
+// ReplaySafeMethods are the methods the dynamic assessment re-sends from any
+// stored record: they read, they do not change state.
+var ReplaySafeMethods = httpmsg.SafeMethods
+
+// writeTemplatePredicate is true for a record whose method is not
+// ReplaySafeMethods and that was first stored without a response — a
+// template (an ingested spec operation, a request-only stub) rather than an
+// exchange a client actually made. request_only_at_store is the provenance;
+// a row written before that column existed falls back to has_response.
+// The gate reads first-write provenance and not today's response because the
+// executor backfills a baseline into a stub it fetched: a template that was
+// sent once must not become replayable by having been sent.
+const writeTemplatePredicate = "(UPPER(method) NOT IN (?) AND (request_only_at_store IS NOT NULL OR has_response = ?))"
+
+// applyWriteTemplateGate keeps only records the dynamic assessment may
+// re-send without --allow-writes: safe methods, and unsafe methods that were
+// first stored with a real response (proxy, browser and scan captures).
+func applyWriteTemplateGate(q *bun.SelectQuery) *bun.SelectQuery {
+	return q.Where("NOT "+writeTemplatePredicate, bun.List(ReplaySafeMethods), false)
+}
+
+// applyWriteTemplateHeld keeps only the records applyWriteTemplateGate
+// removes.
+func applyWriteTemplateHeld(q *bun.SelectQuery) *bun.SelectQuery {
+	return q.Where(writeTemplatePredicate, bun.List(ReplaySafeMethods), false)
+}
+
 // IngestRecordSources lists the http_records.source values that represent
 // user-ingested traffic. Scan-on-receive filters the DBInputSource by this
 // list so it only processes traffic the user actually ingested — excluding
@@ -821,6 +848,12 @@ type RiskPrioritizedDBInputSource struct {
 	// path is testable without a broken database. Defaults to the repository's
 	// AdvanceScanCursorBy.
 	advanceCursor func(ctx context.Context, scanUUID string, at time.Time, id string, delta int64) error
+
+	// allowWrites lifts the write-template gate (WithAllowWrites);
+	// skippedUnsafe is how many records the gate held back from this
+	// source's window, counted once with the bound (SkippedUnsafeMethod).
+	allowWrites   bool
+	skippedUnsafe atomic.Int64
 }
 
 // NewRiskPrioritizedDBInputSource creates a DBInputSource that processes
@@ -832,6 +865,30 @@ func NewRiskPrioritizedDBInputSource(db *DB, repo *Repository, scanUUID string) 
 		repo:     repo,
 		scanUUID: scanUUID,
 	}
+}
+
+// WithAllowWrites lifts the write-template gate: records whose method is not
+// GET/HEAD/OPTIONS are served even when they were first stored without a
+// response (see applyWriteTemplateGate). Off by default.
+func (s *RiskPrioritizedDBInputSource) WithAllowWrites(allow bool) *RiskPrioritizedDBInputSource {
+	s.allowWrites = allow
+	return s
+}
+
+// SkippedUnsafeMethod is how many records in this source's window the
+// write-template gate held back (0 with WithAllowWrites). Valid after the
+// first Next.
+func (s *RiskPrioritizedDBInputSource) SkippedUnsafeMethod() int64 {
+	return s.skippedUnsafe.Load()
+}
+
+// applyGate narrows q to what the write-template gate admits, unless it is
+// lifted.
+func (s *RiskPrioritizedDBInputSource) applyGate(q *bun.SelectQuery) *bun.SelectQuery {
+	if s.allowWrites {
+		return q
+	}
+	return applyWriteTemplateGate(q)
 }
 
 // WithoutCursorCommit keeps the durable scan cursor where it is: a
@@ -1050,15 +1107,18 @@ func (s *RiskPrioritizedDBInputSource) captureBoundLocked(ctx context.Context) e
 		CreatedAt time.Time `bun:"created_at"`
 		UUID      string    `bun:"uuid"`
 	}
-	q := s.db.NewSelect().Model((*HTTPRecord)(nil)).Column("created_at", "uuid")
-	if !s.resumeAt.IsZero() {
-		at := dbTimestampString(s.db.Driver(), s.resumeAt)
-		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", at, at, s.resumeID)
+	window := func(q *bun.SelectQuery) *bun.SelectQuery {
+		if !s.resumeAt.IsZero() {
+			at := dbTimestampString(s.db.Driver(), s.resumeAt)
+			q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", at, at, s.resumeID)
+		}
+		q = s.applyScope(q)
+		q = applyProjectFilter(q, s.projectUUID)
+		q = applyEvidenceExclusion(q)
+		return s.applyRecordFilter(q)
 	}
-	q = s.applyScope(q)
-	q = applyProjectFilter(q, s.projectUUID)
-	q = applyEvidenceExclusion(q)
-	q = s.applyRecordFilter(q)
+	s.countGatedLocked(ctx, window)
+	q := s.applyGate(window(s.db.NewSelect().Model((*HTTPRecord)(nil)).Column("created_at", "uuid")))
 
 	var rows []boundRow
 	if s.presetBound {
@@ -1113,7 +1173,22 @@ func (s *RiskPrioritizedDBInputSource) applyResumeAndBound(q *bun.SelectQuery) *
 	}
 	boundAt := dbTimestampString(s.db.Driver(), s.boundAt)
 	q = q.Where("(created_at < ? OR (created_at = ? AND uuid <= ?))", boundAt, boundAt, s.boundID)
-	return s.applyRecordFilter(applyEvidenceExclusion(applyProjectFilter(q, s.projectUUID)))
+	return s.applyGate(s.applyRecordFilter(applyEvidenceExclusion(applyProjectFilter(q, s.projectUUID))))
+}
+
+// countGatedLocked counts, once per source, the records in the window the
+// write-template gate holds back. A failed count is a missing caveat, not a
+// failed round. Caller holds s.mu.
+func (s *RiskPrioritizedDBInputSource) countGatedLocked(ctx context.Context, window func(*bun.SelectQuery) *bun.SelectQuery) {
+	if s.allowWrites {
+		return
+	}
+	cq := applyWriteTemplateHeld(window(s.db.NewSelect().Model((*HTTPRecord)(nil))))
+	if n, err := cq.Count(ctx); err == nil {
+		s.skippedUnsafe.Store(int64(n))
+	} else {
+		zap.L().Debug("RiskPrioritizedDBInputSource: count gated write templates", zap.Error(err))
+	}
 }
 
 // nextPageRowsLocked returns the next keyset page of eligible rows, ordered

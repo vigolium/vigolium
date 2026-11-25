@@ -164,7 +164,27 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 		if err := rejectCIOutputFlag(); err != nil {
 			return err
 		}
+		// VIGOLIUM_PINNED: argv may narrow the env pins, never widen them
+		// (pinned_env.go). First, so a refused line touches nothing.
+		if err := refusePinnedWidening(cmd, os.Args[1:]); err != nil {
+			return err
+		}
+		// --set overlays the effective config; installed before anything
+		// loads settings (config_overlay.go).
+		if err := installConfigOverlay(cmd); err != nil {
+			return err
+		}
+		// A (phase, dial) pace pair typed here that the phase does not enforce
+		// is refused, not run with an inert value (scan_pace.go).
+		if err := refuseUnboundPaceFlags(); err != nil {
+			return err
+		}
 		if err := applyRedactionMode(); err != nil {
+			return err
+		}
+		// A declared request transform is decoded before anything sends; a
+		// refused one stops the invocation (request_transform.go).
+		if err := applyRequestTransform(); err != nil {
 			return err
 		}
 		// A misread VIGOLIUM_RATE_CEILING would send at full speed under a cap
@@ -204,6 +224,12 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 		// --scope-origin is bound on several commands (scan, scan-url, ingest,
 		// …); an unknown value used to admit every host.
 		if err := validateScopeOrigin(globalScopeOrigin); err != nil {
+			return err
+		}
+
+		// --caller-tag / VIGOLIUM_CALLER_TAG (caller_tags.go): a malformed tag
+		// is refused before anything is written under it.
+		if err := applyCallerTags(); err != nil {
 			return err
 		}
 
@@ -391,6 +417,7 @@ func init() {
 	registerReadOnlyFlag(rootCmd)
 	registerJSONLegacyKeysFlag(rootCmd)
 	registerRedactFlags(rootCmd)
+	registerRequestTransformFlags(rootCmd)
 
 	pf.BoolVarP(&globalVerbose, "verbose", "v", false, "Enable verbose logging output")
 	pf.BoolVar(&globalSilent, "silent", false, "Suppress all output except findings")
@@ -486,6 +513,10 @@ func prepareCommandTree(root *cobra.Command) {
 
 func Execute() {
 	prepareCommandTree(rootCmd)
+	// A pinned session's help shows only what the pin admits (pinned_help.go).
+	if pinnedEnv() {
+		applyPinnedHelpView(rootCmd)
+	}
 
 	// Claim the scratch directory for the whole process, not per scan runner.
 	//
@@ -561,6 +592,11 @@ func Execute() {
 		if code == ExitError && isRequiredFlagError(err) {
 			code = ExitUsageError
 		}
+
+		// A scan asked for --events that ended before its stream began (a
+		// refused flag or config, a failed preflight) still writes its one
+		// scan.finished. See scan_events_refusal.go.
+		emitRefusalTerminalEvent(cmd, err, code, argsForPresentationRecovery())
 
 		// A caller that asked for JSON gets JSON on the way out too. Without this
 		// a failed -j read produced a plain `✖ Error: …` on stderr and NOTHING on

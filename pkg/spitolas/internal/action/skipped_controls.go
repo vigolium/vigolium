@@ -43,6 +43,15 @@ func (l *skippedControlLedger) snapshot() []scanevents.SkippedControl {
 	return append([]scanevents.SkippedControl(nil), l.sample...)
 }
 
+// Label is what a person would read the control as: its text, else its
+// aria-label/title/value, else its href, at most 120 runes.
+func (c *CandidateElement) Label() string {
+	if c == nil {
+		return ""
+	}
+	return controlLabel(c)
+}
+
 // controlLabel is what a person would read the control as: its text, else
 // its aria-label/title/value, else its href.
 func controlLabel(c *CandidateElement) string {

@@ -371,6 +371,11 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 	if err := gate.checkSource(src); err != nil {
 		return err
 	}
+	if pinned, err := parseResolveOverrides(fuzzResolve); err != nil {
+		return err
+	} else if err := gate.checkResolved(src, pinned); err != nil {
+		return err
+	}
 
 	if err := checkFuzzPositionFlags(src.BaselineRequest); err != nil {
 		return err

@@ -38,7 +38,20 @@ var ingestOpts = ingestor.DefaultOptions()
 
 // ingestKeepBlocked backs --keep-blocked (core.ExecutorConfig.KeepBlocked).
 var ingestKeepBlocked bool
-var ingestScanUUID string
+
+// ingestFetchResponses backs --fetch-responses: send request-only inputs and
+// store the answers. Off by default, so an ingest never sends anything unless
+// asked: a spec's POST/DELETE operations are stored as templates, never
+// performed.
+var ingestFetchResponses bool
+
+// ingestFetches reports whether this ingest sends request-only inputs:
+// --fetch-responses. --disable-fetch-response is still accepted (hidden): on
+// its own it changes nothing, and passed with --fetch-responses the refusal
+// to send wins.
+func ingestFetches() bool {
+	return ingestFetchResponses && !globalDisableFetchResponse
+}
 
 var ingestCmd = &cobra.Command{
 	Use:   "ingest",
@@ -54,7 +67,10 @@ a Burp request/response pair (split by '***'), a curl command, or any of the
 file formats (HAR, OpenAPI, Postman, Burp XML, ...); -I pins the format for
 either. Stdin is spooled to a temporary file and read like -i <file>. Inputs that
 already carry a response (Burp pair, HAR, …) are stored as-is — no live
-refetch — so the response you pasted is what lands in the database.`,
+refetch — so the response you pasted is what lands in the database. Inputs
+without one (URL lists, spec operations, a bare request) are stored as
+request-only templates and nothing is sent; --fetch-responses sends them and
+stores the answers.`,
 	Args: cobra.NoArgs,
 	RunE: runIngestCmd,
 }
@@ -66,7 +82,10 @@ func init() {
 	flags.StringVarP(&ingestOpts.ServerURL, "server", "s", "", "Server URL for remote ingestion (omit for local mode)")
 	registerScanOnReceiveFlags(flags, "Continuously scan new HTTP records as they arrive in the database")
 	flags.BoolVar(&globalFullNativeScanOnReceive, "full-native-scan-on-receive", false, "Run the full native scan pipeline (discovery + spidering + dynamic-assessment) continuously on received records, instead of dynamic-assessment only")
-	flags.BoolVar(&globalDisableFetchResponse, "disable-fetch-response", false, "Store requests without fetching responses during ingestion")
+	flags.BoolVar(&ingestFetchResponses, "fetch-responses", false, "Send each request that arrives without a response and store the answer. Off by default: a request-only input (a spec operation, a URL list) is stored as a template and nothing is sent; a later scan sends its GET/HEAD/OPTIONS templates, and its write templates only with --allow-writes")
+	// Accepted and ignored: not fetching is the default now.
+	flags.BoolVar(&globalDisableFetchResponse, "disable-fetch-response", false, "Deprecated: ingest no longer fetches unless --fetch-responses is set (this flag wins over it)")
+	_ = flags.MarkHidden("disable-fetch-response")
 	flags.BoolVar(&ingestKeepBlocked, "keep-blocked", false, "Store a fetched response the block detector classifies as a WAF/bot-wall page (remark blocked:<reason>) instead of dropping the record")
 	flags.StringVar(&globalScopeOrigin, "scope-origin", "", scopeOriginFlagUsage)
 
@@ -108,7 +127,6 @@ func runIngestCmd(cmd *cobra.Command, args []string) error {
 	ingestOpts.Headers = globalSpecHeader
 	ingestOpts.Variables = globalSpecVar
 	ingestOpts.DefaultParam = globalSpecDefault
-	ingestScanUUID = globalScanUUID
 
 	// API key from environment only
 	ingestOpts.APIKey = os.Getenv("VIGOLIUM_API_KEY")
@@ -373,9 +391,9 @@ func ingestFailureHint(reasons map[string]int64) string {
 	hint := " — " + strings.Join(parts, ", ")
 	switch keys[0] {
 	case core.DropBlocked:
-		hint += ". The answers were WAF/bot-wall pages: --keep-blocked stores them marked, --disable-fetch-response stores the requests without fetching"
+		hint += ". The answers were WAF/bot-wall pages: --keep-blocked stores them marked; without --fetch-responses the requests are stored without fetching"
 	case core.DropFetchError, core.DropQuarantined:
-		hint += ". The hosts did not answer: --disable-fetch-response stores the requests without fetching"
+		hint += ". The hosts did not answer: without --fetch-responses the requests are stored without fetching"
 	case core.DropBudget:
 		hint += ". The request budget ran out: raise --max-requests / --max-requests-per-host"
 	case core.DropOutOfScope:
@@ -389,7 +407,7 @@ func ingestFailureHint(reasons map[string]int64) string {
 // the shortfall rather than burying it after a success symbol.
 func ingestSummaryLine(out ingestOutcome, elapsed time.Duration) string {
 	suffix := ""
-	if globalDisableFetchResponse {
+	if !ingestFetches() {
 		suffix = " (no response fetch)"
 	}
 	if out.Skipped > 0 {
@@ -627,7 +645,9 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (outcome ingestOutcome, err 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := db.CreateSchema(ctx); err != nil {
+	// EnsureSchemaReady, not CreateSchema: an outdated store is refused with
+	// schema_outdated rather than migrated inside the ingest.
+	if err := db.EnsureSchemaReady(ctx); err != nil {
 		return outcome, fmt.Errorf("failed to create database schema: %w", err)
 	}
 
@@ -683,9 +703,14 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (outcome ingestOutcome, err 
 	// and — through preloadedResponseSource — the format parsers, which used to
 	// hand their captured responses to the executor to be discarded and
 	// re-fetched.
+	// The invocation's scans row (--caller-tag lands on it): every record this
+	// ingest stores, saved directly or fetched by the executor, carries its
+	// scan_uuid.
+	ingestRowUUID := newInvocationScanRow(invocationScanIngest).ensure(ctx, repo, ingestProjectUUID, ingestRowTarget())
 	saver := &ingestSaver{
 		repo:          repo,
 		projectUUID:   ingestProjectUUID,
+		scanUUID:      ingestRowUUID,
 		staticMatcher: staticMatcher,
 	}
 	if settings.Scope.AppliedOnIngest {
@@ -710,10 +735,10 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (outcome ingestOutcome, err 
 		return outcome, nil
 	}
 
-	if globalDisableFetchResponse {
+	if !ingestFetches() {
 		// Store what the input carries without fetching anything: the same
 		// filters and the same accounting as the direct-save path, because it
-		// is the same write.
+		// is the same write. The default: a request-only input is a template.
 		for {
 			item, nextErr := inputSource.Next(ctx)
 			if nextErr != nil {
@@ -741,7 +766,7 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (outcome ingestOutcome, err 
 		Services:          svc,
 		HTTPRequester:     httpRequester,
 		Repository:        repo,
-		ScanUUID:          ingestScanUUID,
+		ScanUUID:          ingestRowUUID,
 		ProjectUUID:       ingestProjectUUID,
 		StaticFileMatcher: staticMatcher, // always filter static files
 		KeepBlocked:       ingestKeepBlocked,
@@ -1164,4 +1189,18 @@ func rebaseRawRequests(items []*httpmsg.HttpRequestResponse, target string) ([]*
 		out = append(out, next)
 	}
 	return out, nil
+}
+
+// ingestRowTarget names what an ingest read, for its scans row: the input
+// file, else the first target, else the directory.
+func ingestRowTarget() string {
+	switch {
+	case ingestOpts.Input != "" && ingestOpts.Input != "-":
+		return ingestOpts.Input
+	case len(globalTargets) > 0:
+		return globalTargets[0]
+	case strings.TrimSpace(ingestDir) != "":
+		return ingestDir
+	}
+	return "stdin"
 }

@@ -28,8 +28,12 @@ add `--scan-on-receive` (local) or feed a server started with it (see
 **Usage:** `vigolium ingest [flags]`
 
 Ingest HTTP requests into the database, either locally or via a remote server.
-Responses are fetched by default (source `ingest-cli`); disable with
-`--disable-fetch-response` to store request-only records.
+Nothing is sent by default: an input that carries a response is stored as-is,
+one without is stored as a request-only template (source `ingest-cli`).
+`--fetch-responses` sends request-only inputs and stores the answers. A later
+scan assesses GET/HEAD/OPTIONS templates; it sends POST/PUT/PATCH/DELETE
+templates only with `--allow-writes` (otherwise they are counted in the
+`templates_skipped_unsafe_method` caveat).
 
 ### ingest-specific flags
 
@@ -83,7 +87,7 @@ path is indistinguishable from an empty capture.
 | `--spec-header` | HTTP header(s) for OpenAPI/WSDL requests (repeatable) |
 | `--spec-var` | OpenAPI parameter / WSDL element / Postman `{{variable}}` values as `key=value` (repeatable) |
 | `--spec-default` | Default value for required parameters (default: `1`) |
-| `--disable-fetch-response` | Store request-only (don't fetch responses) |
+| `--fetch-responses` | Send request-only inputs and store the answers (off: nothing is sent) |
 | `--scope-origin` | Origin scope mode for filtering |
 | `--no-tech-filter` | Disable the tech-stack allowlist (run every module regardless of detected stack; auto-on at `--intensity deep`) |
 | `--no-waf-pacing` | Disable proactive CDN/WAF-edge pacing (reactive back-off after a WAF block still applies) |
@@ -210,8 +214,8 @@ vigolium ingest -t https://api.example.com -I openapi -i spec.yaml --scan-on-rec
 # Ingest a whole capture folder in one process.
 vigolium ingest --dir ./captures --dir-glob '*.har' -I har
 
-# Ingest a Burp export request-only (no response fetching — fast, offline).
-vigolium ingest -I burp -i export.xml --disable-fetch-response
+# Ingest a Burp export request-only (the default: nothing is sent).
+vigolium ingest -I burp -i export.xml
 
 # Push a spec to a running server for it to scan (remote mode).
 VIGOLIUM_API_KEY=… vigolium ingest -s http://localhost:9002 -I openapi -i spec.yaml
@@ -257,8 +261,8 @@ names the dominant reason and its fix:
 
 | Reason | Meaning | Fix |
 |---|---|---|
-| `blocked` | the answer was a WAF / bot-wall page | `--keep-blocked` stores it, remark `blocked:<reason>`; or `--disable-fetch-response` |
-| `fetch_error` | DNS, connect, TLS or timeout | `--disable-fetch-response` stores the request without fetching |
+| `blocked` | the answer was a WAF / bot-wall page | `--keep-blocked` stores it, remark `blocked:<reason>`; or drop `--fetch-responses` |
+| `fetch_error` | DNS, connect, TLS or timeout | drop `--fetch-responses` to store the request without fetching |
 | `quarantined` | the host was quarantined as unresponsive | as above |
 | `budget` | `--max-requests[-per-host]` refused the send | raise the budget |
 | `store_error` | the database refused the write | check the store (`vigolium db stats`) |

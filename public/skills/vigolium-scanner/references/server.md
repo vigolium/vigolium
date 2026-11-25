@@ -69,7 +69,7 @@ listening.
 | `--timeout` | — | duration | `15s` | HTTP request timeout for background scan workers (e.g. `30s`, `1m`) |
 | `--view-only` | — | bool | `false` | Run server in read-only mode (disables scanning, ingestion, agent, and all write endpoints) |
 
-(`--disable-fetch-response` is an **ingest-only** flag — it is not registered on
+(`--fetch-responses` is an **ingest-only** flag — it is not registered on
 `server`. See [ingest.md](ingest.md). `--export-ca <file>` still works as a
 hidden alias of `server ca print --out <file>`.)
 

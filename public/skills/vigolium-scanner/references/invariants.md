@@ -122,10 +122,11 @@ Shows it: `vigolium finding --read-only --db evidence.sqlite -j`
   `status` (`completed`/`curtailed`), `completeness` (`complete`/`partial`;
   empty = unknown), `stop_reason` and `reasons[]` on the scan document or
   `scan.finished` before reading a thin result as a clean target.
-- A scan that did nothing exits `1`: `no_targets_in_scope` (scope refused
-  every target, nothing sent) or `no_targets_reachable` (no admitted target
-  answered the preflight). Partial versions of the same facts
-  (`targets_out_of_scope`, `targets_unreachable`) leave the exit at `0`.
+- A target the scope refuses stops `scan`, `scan-url` and `scan-request` at
+  entry with exit `2` `out_of_scope` (nothing sent, no scan row), as it stops
+  every sender. A scan that did nothing exits `1` `no_targets_reachable` (no
+  admitted target answered the preflight); `targets_unreachable` (some did not)
+  leaves the exit at `0`.
 - Exit `5` is "ran, but incomplete": `interrupted` (SIGINT/SIGTERM or `scan
   stop`; results cover what ran first), `timed_out`/`budget_exhausted` (agent
   runs) and `partial`. A native partial scan exits `0` unless `--fail-on`
@@ -405,8 +406,10 @@ Branch on the code, then run the command in the right column (read
 | `scan_not_found` | 1 | `vigolium scan ls -j` (keywords `latest`, `previous`; prefixes need 8+ characters) |
 | `not_found` | 1 | list what exists with the matching read (`auth show`, `module show`, `server status`, …) |
 | `body_unavailable` / `body_decode_failed` / `body_incomplete` | 1 | see the extraction table below; `--representation stored` or `--allow-incomplete` |
-| `no_targets_in_scope` | 1 | `vigolium scope check <url> -j` names the rule; `vigolium scope add host <pattern>` or `--ignore-scope` |
-| `out_of_scope` | 2 | same as above; nothing was sent |
+| `out_of_scope` | 2 | `vigolium scope check <url> -j` names the rule; `vigolium scope add host <pattern>`, a `scope.cidr.include` / `scope.port.include` entry, or `--ignore-scope`; nothing was sent |
+| `no_targets_in_scope` | 1 | server mode only (a REST scan whose targets the scope all refused): `vigolium scope check <url> -j` names the rule; nothing ran |
+| `refused_by_policy` | 2 | `VIGOLIUM_PINNED=1` refused a flag that widens the pinned environment; run `error.hint`, the same command line without it; nothing ran |
+| `pace_unsupported` | 2 | that phase does not enforce that dial: `vigolium schema pace -j` lists the pairs that bind; nothing ran |
 | `no_targets_reachable` | 1 | `vigolium doctor --for scan -j` (proxy, `NO_PROXY`), then a plain request to the target ([local targets](#local-targets-and-proxied-sandboxes)) |
 | `scan_abandoned` | 1 | the process died: `vigolium scan status <uuid> -j`, then rescan |
 | `scan_running` | 1 | `--resume-scan` named a scan still being written: `vigolium scan wait <uuid> --timeout 30m -j`, or `vigolium scan stop <uuid> --wait`, then resume; nothing was sent |

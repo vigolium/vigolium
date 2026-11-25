@@ -56,8 +56,12 @@ var knownDefects = map[string]knownDefect{
 	"discovery/recurses-into-file-stems": {why: "discovery brute-forces under file names as if they were directories " +
 		"(/chunk-3CyVWL1v/… from chunk-3CyVWL1v.js, /polyfills/…, /favicon_js/…, Google-font hashes); a 4-minute " +
 		"discovery of Juice Shop sends ~14.5k requests"},
-	"discovery/ignores-default-rate-limit": {why: "discovery is paced only when --rate-limit is typed: a `run discovery` " +
-		"with the default 100/s sent 8,259 requests in one second to Juice Shop"},
+	// By design (config.ScanningPaceConfig.DiscoveryRateLimit), so it shows
+	// only when the target answers fast enough: 8,259/s on 2026-11-16, 191
+	// and 230 in two runs on 2026-11-25.
+	"discovery/ignores-default-rate-limit": {intermittent: true, why: "discovery is paced only when --rate-limit " +
+		"(or scanning_pace.discovery.rate_limit) is set: a `run discovery` under the default 100/s sent 8,259 " +
+		"requests in one second to Juice Shop"},
 	"live/native-scan-misses-search-sqli": {why: "the default native scan (rate 80/s, discovery and spidering capped at 3m, " +
 		"--max-time 20m) spends ~14 min in dynamic assessment over ~140 records and hits scan_budget without " +
 		"reporting /rest/products/search's SQLi, which a module-scoped scan of that URL finds in seconds"},

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/agent/recon"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 )
 
 // fingerprintFixture is an origin with a page, a linked icon, robots.txt, a
@@ -168,7 +169,8 @@ func TestFingerprintRefusesOutOfScopeTargets(t *testing.T) {
 	f := newFingerprintFixture(t)
 	home := a3Home(t, "nomatch.example")
 	code, stdout, stderr := runA3(t, home, "fingerprint", "-t", f.srv.URL, "-j")
-	require.Equal(t, 1, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	require.Equal(t, 2, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	assert.Equal(t, string(apicontract.CodeOutOfScope), errorCode(t, stdout))
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	assert.Zero(t, f.hits, "an out-of-scope target is refused before any request")
@@ -187,7 +189,7 @@ func TestTrafficMatchesNotFound(t *testing.T) {
 
 	list := t.TempDir() + "/urls.txt"
 	require.NoError(t, writeFile(list, f.srv.URL+"/no-such-page-xyz\n"+f.srv.URL+"/missing.txt\n"+f.srv.URL+"/about\n"))
-	code, stdout, stderr = runA3(t, home, "ingest", "-i", list, "-j")
+	code, stdout, stderr = runA3(t, home, "ingest", "-i", list, "--fetch-responses", "-j")
 	require.Equal(t, 0, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
 
 	urls := []string{"--url", f.srv.URL + "/no-such-page-xyz", "--url", f.srv.URL + "/missing.txt", "--url", f.srv.URL + "/about"}

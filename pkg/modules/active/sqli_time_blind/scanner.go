@@ -289,6 +289,7 @@ func (m *Module) confirmTiming(
 
 	last := rounds[len(rounds)-1]
 	return &output.ResultEvent{
+		Proof:              timingProofRecipe(ctx, ip, sleepPayload, render(0)),
 		Request:            proof.request,
 		Response:           proof.response,
 		FuzzingParameter:   ip.Name(),
@@ -317,6 +318,23 @@ func (m *Module) confirmTiming(
 			"sleep_low_s":         sleepLow,
 		},
 	}, nil
+}
+
+// timingProofRecipe states the confirmation as a timing_delta recipe: the
+// high-sleep payload against the no-sleep control, each round's attack at
+// least sleepHigh/minScaleDenom seconds slower (the delay ScaledDelayConfirmed
+// credits the high sleep with), over timeRounds rounds. The low-sleep scaling
+// leg has no counterpart in the closed oracle set; the recipe is the
+// differential half of the decision.
+func timingProofRecipe(ctx *httpmsg.HttpRequestResponse, ip httpmsg.InsertionPoint, sleepPayload, controlPayload string) *output.ProofRecipe {
+	return modkit.BuildProofRecipe(ctx, ip,
+		func(string) string { return sleepPayload },
+		func(string) string { return controlPayload },
+		output.ProofOracle{
+			Kind:       output.ProofTimingDelta,
+			MinDeltaMS: (time.Duration(sleepHigh) * time.Second / minScaleDenom).Milliseconds(),
+			Repeat:     timeRounds,
+		})
 }
 
 // timedResult is one timed probe: its wall-clock latency, whether the response

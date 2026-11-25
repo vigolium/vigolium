@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vigolium/vigolium/internal/paths"
 	"go.uber.org/zap"
 )
 
@@ -350,17 +351,17 @@ func resolveSessionPath(path string, sessionDir string) string {
 	// If the path already has a known extension, use it as-is for lookup
 	hasExt := strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".json")
 
-	// Use configured session dir or default to ~/.vigolium/sessions/
-	dir := sessionDir
+	// Use configured session dir or default to ~/.vigolium/sessions/ (under
+	// VIGOLIUM_STATE_DIR when that is set).
+	dir := paths.Relocate(sessionDir)
 	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
+		dir = paths.VigoliumPath("sessions")
+		if dir == "" {
 			if !hasExt {
 				return path + ".yaml"
 			}
 			return path
 		}
-		dir = filepath.Join(home, ".vigolium", "sessions")
 	}
 	// Expand ~ prefix in configured dir
 	if strings.HasPrefix(dir, "~/") {

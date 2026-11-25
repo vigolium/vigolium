@@ -9,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/dnsresolve"
 	"github.com/vigolium/vigolium/pkg/fuzz"
 	"github.com/vigolium/vigolium/pkg/oast"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/scanplan"
 )
@@ -49,6 +50,7 @@ type findingViewSchema struct {
 	CWEID              string                          `json:"cwe_id,omitempty"`
 	VulnClass          string                          `json:"vuln_class,omitempty"`
 	ClaimedSeverity    string                          `json:"claimed_severity,omitempty"`
+	Principals         []string                        `json:"principals,omitempty"`
 	CVSSScore          float64                         `json:"cvss_score,omitempty"`
 	Remediation        string                          `json:"remediation,omitempty"`
 	Status             string                          `json:"status,omitempty"`
@@ -63,6 +65,7 @@ type findingViewSchema struct {
 	OriginRecordUUID   string                          `json:"origin_record_uuid,omitempty"`
 	InsertionPoint     *database.FindingInsertionPoint `json:"insertion_point,omitempty"`
 	Payload            string                          `json:"payload,omitempty"`
+	Proof              *output.ProofRecipe             `json:"proof,omitempty"`
 	Verification       *database.FindingVerification   `json:"verification,omitempty"`
 	VerifiedAt         string                          `json:"verified_at,omitempty"`
 	ResponseEvidence   string                          `json:"response_evidence,omitempty"`
@@ -110,6 +113,9 @@ type recordViewSchema struct {
 	// MatchesNotFound appears when --fields names it and the record's origin
 	// has a not-found baseline (or the record is a 404/410).
 	MatchesNotFound *bool `json:"matches_not_found,omitempty"`
+	// Tags are the record's caller labels (record_tags, `import --tag`),
+	// present only on a labelled record.
+	Tags map[string]string `json:"tags,omitempty"`
 }
 
 // bodyViewSchema mirrors bodyView: one request or response, headers verbatim
@@ -151,15 +157,29 @@ type curlExtras struct {
 	Redacted bool `json:"redacted,omitempty"`
 }
 
+// listCursorExtras are the keyset-paging extras of the finding and traffic
+// listings (list_cursor.go).
+type listCursorExtras struct {
+	// Truncated is true when rows matching the filters remain after this page
+	// (the limit, or --max-output-bytes, cut it).
+	Truncated *bool `json:"truncated,omitempty"`
+	// NextCursor resumes the listing after this page (--cursor); opaque, and
+	// stable while a scan writes. Present when Truncated is true and the page
+	// is read from the store alone (not merged with --burp-bridge-url).
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
 type trafficExtras struct {
 	provenanceExtras
 	curlExtras
+	listCursorExtras
 	// NotFoundExcluded counts records --exclude-not-found removed from the page.
 	NotFoundExcluded *int `json:"not_found_excluded,omitempty"`
 }
 
 type findingExtras struct {
 	curlExtras
+	listCursorExtras
 	// FindingsTotal is the matched finding count under --curl, where total
 	// counts the rendered rows.
 	FindingsTotal int64 `json:"findings_total,omitempty"`
@@ -444,7 +464,12 @@ func init() {
 	registerCommandSchema(contract.Command{Name: "schema flags", Item: flagUsageView{}, Extras: schemaFlagsExtras{},
 		Description: "One command's flags (for_command): name, shorthand, type, default, description, inherited."})
 	registerCommandSchema(contract.Command{Name: "schema storage", Item: storageTable{},
+		Variants:    []contract.Variant{{Flag: "--ddl", Item: schemaDDLView{}}},
 		Description: "The database's tables with columns, row counts, purpose, and the -j field a column surfaces as."})
+	registerCommandSchema(contract.Command{Name: "schema pace", Item: schemaPaceRow{},
+		Description: "Every (phase, dial) pace pair and whether the phase enforces it; a command-line pair it does not is refused (pace_unsupported)."})
+	registerCommandSchema(contract.Command{Name: "scan coverage", Item: database.RecordModuleCoverage{},
+		Description: "A scan's coverage ledger as (record, module) cells: done is true when the module finished on the record; -n/--offset page the cells."})
 	registerCommandSchema(contract.Command{Name: "fuzz", Item: fuzz.Result{}, Extras: fuzzExtras{},
 		Description: "The run summary: items are the top-ranked matched results (total is every match); --fields projects them."})
 	registerCommandSchema(contract.Command{Name: "replay", Item: replayOutput{}, Extras: replayExtras{},
@@ -456,6 +481,8 @@ func init() {
 		Description: "A receipt for one extracted body: size, sha256, completeness and where it was written."})
 	registerCommandSchema(contract.Command{Name: "traffic headers", Item: trafficHeadersReceipt{}, ItemsKind: contract.ItemsObject,
 		Description: "One stored message's headers as an ordered array (repeated headers kept)."})
+	registerCommandSchema(contract.Command{Name: "traffic request", Item: storedRequest{}, ItemsKind: contract.ItemsObject,
+		Description: "One stored request whole: method, url, the raw request-target, ordered headers, the body (gzip decoded; base64 when not UTF-8) and whether it is complete."})
 	// The database maintenance commands, finding load and project list.
 	registerCommandSchema(contract.Command{Name: "db stats", Item: database.DatabaseStats{}, ItemsKind: contract.ItemsObject,
 		StreamFlag: "--watch", Description: "Row counts and breakdowns for the store (one object)."})
@@ -517,6 +544,9 @@ type dnsExtras struct {
 // schemaFlagsExtras are `schema flags -j`'s top-level keys.
 type schemaFlagsExtras struct {
 	ForCommand string `json:"for_command"`
+	// Policy is the pinned-session line (VIGOLIUM_PINNED=1): the refused flags
+	// are absent from items.
+	Policy string `json:"policy,omitempty"`
 }
 
 // fuzzExtras are fuzz -j's top-level keys: fuzzJSONSummary (which embeds this
@@ -653,6 +683,18 @@ type importExtras struct {
 	ProjectsMerged       int    `json:"projects_merged,omitempty"`
 	FindingRecordsMerged int    `json:"finding_records_merged,omitempty"`
 	OASTMerged           int    `json:"oast_merged,omitempty"`
+	// Source records the destination already held, skipped by uuid before
+	// their bodies were read (a re-import is a delta).
+	RecordsSkippedPresent int `json:"records_skipped_present,omitempty"`
+
+	// --tag: the labels written and how many written records carry them.
+	Tags          map[string]string `json:"tags,omitempty"`
+	RecordsTagged int               `json:"records_tagged,omitempty"`
+	// --redact credentials: the redaction applied and how many written
+	// records and findings carried a credential it masked.
+	Redaction        string `json:"redaction,omitempty"`
+	RecordsRedacted  int    `json:"records_redacted,omitempty"`
+	FindingsRedacted int    `json:"findings_redacted,omitempty"`
 
 	// A multi-source import: every source with its outcome, and how many
 	// failed (the totals above cover the rest).

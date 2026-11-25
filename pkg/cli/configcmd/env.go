@@ -72,6 +72,6 @@ func newEnvCmd(deps Deps) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&showSecrets, "show-secrets", false, "Reveal sensitive values in plaintext instead of [redacted]")
-	cmd.Flags().BoolVar(&setOnly, "set", false, "List only the variables set in this environment")
+	cmd.Flags().BoolVar(&setOnly, "only-set", false, "List only the variables set in this environment")
 	return cmd
 }

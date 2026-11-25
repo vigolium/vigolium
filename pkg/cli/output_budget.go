@@ -100,6 +100,16 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 	var dropped []string
 	saved := map[string]any{}
 	followable, fullResult := budgetFollowUp(env.Command)
+	// A keyset-paged read states truncated/next_cursor itself; a cut page
+	// resumes after its last kept item instead.
+	pageExtras := map[string]any{}
+	if env.cursorAfter != nil {
+		for _, key := range []string{listTruncatedKey, listNextCursorKey} {
+			if v, ok := env.extra[key]; ok {
+				pageExtras[key] = v
+			}
+		}
+	}
 
 	// restore undoes everything a measurement did, so a trial encode can never
 	// leak into the emitted document.
@@ -108,6 +118,13 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 		delete(env.extra, outputBudgetKey)
 		for k, v := range saved {
 			env.extra[k] = v
+		}
+		if env.cursorAfter != nil {
+			delete(env.extra, listTruncatedKey)
+			delete(env.extra, listNextCursorKey)
+			for k, v := range pageExtras {
+				env.extra[k] = v
+			}
 		}
 	}
 
@@ -133,6 +150,13 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 			report["dropped_keys"] = slices.Clone(dropped)
 		}
 		env.With(outputBudgetKey, report)
+		if env.cursorAfter != nil && k < n {
+			env.With(listTruncatedKey, true)
+			delete(env.extra, listNextCursorKey)
+			if c := env.cursorAfter(k); c != "" {
+				env.With(listNextCursorKey, c)
+			}
+		}
 	}
 	// measure is apply plus the encode that answers "does it fit".
 	measure := func(k int) ([]byte, bool, error) {

@@ -103,15 +103,17 @@ func TestIncompleteCodes(t *testing.T) {
 
 func TestErrorCodeExit(t *testing.T) {
 	for code, want := range map[ErrorCode]int{
-		CodeUsageError:    ExitUsageError,
-		CodeOutOfScope:    ExitUsageError,
-		CodeGateTripped:   ExitFailOnGate,
-		CodeTimedOut:      ExitIncomplete,
-		CodePartial:       ExitIncomplete,
-		CodeInterrupted:   ExitIncomplete,
-		CodeAmbiguousID:   ExitError,
-		CodeFailed:        ExitError,
-		CodeSourceMissing: ExitError,
+		CodeUsageError:      ExitUsageError,
+		CodeOutOfScope:      ExitUsageError,
+		CodeRefusedByPolicy: ExitUsageError,
+		CodePaceUnsupported: ExitUsageError,
+		CodeGateTripped:     ExitFailOnGate,
+		CodeTimedOut:        ExitIncomplete,
+		CodePartial:         ExitIncomplete,
+		CodeInterrupted:     ExitIncomplete,
+		CodeAmbiguousID:     ExitError,
+		CodeFailed:          ExitError,
+		CodeSourceMissing:   ExitError,
 	} {
 		if got := code.Exit(); got != want {
 			t.Errorf("%s.Exit() = %d, want %d", code, got, want)

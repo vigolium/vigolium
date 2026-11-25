@@ -1,11 +1,7 @@
 package cli
 
 import (
-	"os"
-
 	"github.com/spf13/cobra"
-
-	"github.com/vigolium/vigolium/internal/runner"
 )
 
 // Execution paths a scan-url/scan-request plan names.
@@ -65,12 +61,6 @@ func runLightweightDryRun(cmd *cobra.Command, inputs []scanInput) error {
 	} else {
 		plan.AddWarning("direct_path",
 			"runs in memory: the selected modules over the input request only, with no seed, preflight, other phases or feedback rounds; stored records are not read (-o, --format, -S, --intensity, --auth or a phase flag would take the runner path this plan otherwise describes)")
-	}
-	if plan.Targets.Seeded > 0 && plan.Targets.Admitted == 0 {
-		if !globalJSON {
-			renderPlan(os.Stdout, plan)
-		}
-		return noTargetsInScopeError(runner.AdmitTargets(settings.Scope, targets))
 	}
 	return printDryRunPlan(cmd, plan, dbPath)
 }

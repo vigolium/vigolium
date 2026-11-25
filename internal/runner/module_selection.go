@@ -18,6 +18,12 @@ type ModuleSelection struct {
 
 	// TierCeiling is the intensity's tier rank ceiling.
 	TierCeiling int
+	// MaxTier is the hard tier ceiling (--max-module-tier /
+	// dynamic-assessment.max_module_tier), 0 when none; TierCapped lists the
+	// module ids it removed, active then passive. Unlike TierDeferred it binds
+	// explicit selections too.
+	MaxTier    int
+	TierCapped []string
 	// ActiveByConfig / PassiveByConfig report a dynamic-assessment
 	// enabled_modules allowlist narrowing an "all" selection.
 	ActiveByConfig, PassiveByConfig bool
@@ -142,6 +148,11 @@ func FilterModulesForRun(opts *types.Options, settings *config.Settings) ModuleS
 			sel.Passive, sel.passiveHygiene = partitionModules(sel.Passive, isHygiene[modules.PassiveModule])
 		}
 	}
+
+	// The hard ceiling binds every selection - explicit -m, config allowlist and
+	// broad alike - because it is the caller's limit, not a default.
+	sel.MaxTier = maxModuleTierRank(opts, settings)
+	sel.Active, sel.Passive, sel.TierCapped = CapModulesAtTier(sel.Active, sel.Passive, sel.MaxTier)
 
 	// Execution priority order, aligned with the executor's scheduling policy.
 	sortActiveModulesByPriority(sel.Active)

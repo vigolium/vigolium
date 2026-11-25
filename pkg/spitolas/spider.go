@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/deparos/waf"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
@@ -25,6 +26,22 @@ type RecordSaver interface {
 	SaveRecord(ctx context.Context, httpRR *httpmsg.HttpRequestResponse, source string, projectUUID string) (string, error)
 	SaveRecordBatch(ctx context.Context, records []*httpmsg.HttpRequestResponse, source string, projectUUID string) ([]string, error)
 }
+
+// WebSocketFrame is one frame the crawl's browser sent or received on an
+// in-scope WebSocket. A RecordSaver that also implements FrameSaver is handed
+// them in batches; one that does not stores none.
+type WebSocketFrame = network.WebSocketFrame
+
+// FrameSaver persists the crawl's WebSocket frames.
+type FrameSaver = network.FrameSaver
+
+// WebSocket frame directions and payload encodings (WebSocketFrame).
+const (
+	FrameSent     = network.FrameSent
+	FrameReceived = network.FrameReceived
+	PayloadText   = network.PayloadText
+	PayloadBase64 = network.PayloadBase64
+)
 
 // SpiderConfig configures the browser-based spidering engine.
 type SpiderConfig struct {
@@ -116,6 +133,12 @@ type SpiderConfig struct {
 	// MethodAllowed is the scan's traffic policy (scope.methods): requests
 	// with a refused method are failed in the browser. nil = every method.
 	MethodAllowed func(method string) bool
+	// OnBlock, when set, is told of every in-scope document / XHR / fetch
+	// response the crawl captured that deparos/waf.ClassifyResponse calls a
+	// block or a challenge page — a 200 or 202 challenge included — with the
+	// host it came from. The runner reports it on the scan's block notifier
+	// (transport "spider"). Runs on the capture goroutine; must be cheap.
+	OnBlock func(host string, status int, block *waf.BlockResult)
 
 	// BrowserCompat, when set, is the set of browser security exceptions the
 	// crawl launches with; nil means DefaultBrowserCompat.
@@ -392,6 +415,7 @@ func buildCrawlerConfig(cfg SpiderConfig) (*config.Config, error) {
 	crawlerCfg.ExcludeSelectors = append(crawlerCfg.ExcludeSelectors, cfg.ExcludeSelectors...)
 	crawlerCfg.MethodAllowed = cfg.MethodAllowed
 	crawlerCfg.AuthMonitor = cfg.AuthMonitor
+	crawlerCfg.OnBlock = cfg.OnBlock
 	crawlerCfg.BrowserCompat = config.BrowserCompat(cfg.EffectiveCompat())
 	crawlerCfg.LoginCredentialFullList = cfg.LoginCredentialFullList
 	if cfg.IdentityEmailDomain != "" {

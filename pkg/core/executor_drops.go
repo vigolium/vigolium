@@ -23,6 +23,11 @@ const (
 // is policy, not a failure, and the ledger counts failures.
 const SkipStaticFile = "static_file"
 
+// SkipWriteTemplate is the OnUnanswered reason for a stored request-only stub
+// with a state-changing method that the write-template guard refused to send
+// (ExecutorConfig.AllowWrites). Policy, like SkipStaticFile.
+const SkipWriteTemplate = "write_template"
+
 // dropReasons is the closed set, in the order a ledger stores them.
 var dropReasons = [...]string{DropFetchError, DropBlocked, DropBudget, DropQuarantined, DropStoreError, DropOutOfScope}
 

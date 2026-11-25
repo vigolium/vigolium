@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"go.uber.org/zap"
 )
@@ -94,11 +95,10 @@ func loadCheckpoint(sessionDir string) (*SwarmCheckpoint, error) {
 // Returns the absolute path to the created directory.
 func EnsureSessionDir(baseDir, agenticScanUUID string) (string, error) {
 	if baseDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home dir: %w", err)
+		baseDir = paths.VigoliumPath("agent-sessions")
+		if baseDir == "" {
+			return "", fmt.Errorf("failed to resolve the state directory: no home directory and no %s", paths.StateDirEnv)
 		}
-		baseDir = filepath.Join(home, ".vigolium", "agent-sessions")
 	}
 	dir := filepath.Join(baseDir, agenticScanUUID)
 	if err := os.MkdirAll(dir, 0755); err != nil {

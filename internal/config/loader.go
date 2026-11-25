@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/vigolium/vigolium/internal/atomicfile"
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/public"
 	"gopkg.in/yaml.v3"
@@ -222,7 +223,8 @@ func ApplyProfile(settings *Settings, profile *ProfileSettings) error {
 		}
 	}
 
-	return nil
+	// A profile or project overlay never outranks the invocation's --set.
+	return applyProcessOverlay(settings)
 }
 
 // LoadError reports a configuration file that could not be used, and names the
@@ -301,7 +303,11 @@ func LoadSettingsWithWarnings(configPath string) (*Settings, []string, error) {
 			return nil, nil, &LoadError{Path: path, Explicit: false, Op: "stat", Err: err}
 		}
 		if path == "" {
-			return DefaultSettings(), nil, nil
+			settings := DefaultSettings()
+			if err := applyProcessOverlay(settings); err != nil {
+				return nil, nil, err
+			}
+			return settings, nil, nil
 		}
 
 		// Discovery is first-match-wins, so a project-local ./vigolium-configs.yaml
@@ -333,6 +339,11 @@ func LoadSettingsWithWarnings(configPath string) (*Settings, []string, error) {
 
 	if msg := unknownKeyWarning(path, content); msg != "" {
 		warnings = append(warnings, msg)
+	}
+
+	// The invocation's --set entries outrank the file.
+	if err := applyProcessOverlay(&settings); err != nil {
+		return nil, nil, err
 	}
 
 	// Install the configured global User-Agent selector so every scan phase that
@@ -435,10 +446,12 @@ func DefaultSettings() *Settings {
 	}
 }
 
-// ExpandPath handles ~ expansion and environment variables
+// ExpandPath handles ~ expansion and environment variables. A path naming
+// vigolium state (~/.vigolium, ~/.cache, ~/nuclei-templates) lands under
+// VIGOLIUM_STATE_DIR when that is set (paths.Relocate).
 func ExpandPath(path string) string {
 	// Expand environment variables
-	path = ExpandEnvVars(path)
+	path = paths.Relocate(ExpandEnvVars(path))
 
 	// Expand ~ to home directory
 	if strings.HasPrefix(path, "~/") {

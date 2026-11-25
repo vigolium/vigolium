@@ -37,7 +37,7 @@ func TestJuiceShop_SQLi(t *testing.T) {
 
 	// Start Juice Shop container
 	app, err := StartContainer(ctx, ContainerConfig{
-		Image:       "bkimminich/juice-shop:latest",
+		Image:       juiceShopImage,
 		ExposedPort: "3000/tcp",
 		WaitStrategy: wait.ForHTTP("/").
 			WithPort("3000").
@@ -114,7 +114,7 @@ func TestJuiceShop_XSS(t *testing.T) {
 
 	// Start Juice Shop container
 	app, err := StartContainer(ctx, ContainerConfig{
-		Image:       "bkimminich/juice-shop:latest",
+		Image:       juiceShopImage,
 		ExposedPort: "3000/tcp",
 		WaitStrategy: wait.ForHTTP("/").
 			WithPort("3000").
@@ -175,7 +175,7 @@ func TestJuiceShop_FullScan(t *testing.T) {
 
 	// Start Juice Shop container
 	app, err := StartContainer(ctx, ContainerConfig{
-		Image:       "bkimminich/juice-shop:latest",
+		Image:       juiceShopImage,
 		ExposedPort: "3000/tcp",
 		WaitStrategy: wait.ForHTTP("/").
 			WithPort("3000").

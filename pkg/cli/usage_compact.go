@@ -118,6 +118,9 @@ func writeCompactUsage(w io.Writer, cmd *cobra.Command) {
 	if subs := visibleSubcommands(cmd); len(subs) > 0 {
 		fmt.Fprintf(&sb, "subcommands: %s\n", strings.Join(subs, ", "))
 	}
+	if pinnedEnv() {
+		fmt.Fprintln(&sb, pinnedHelpNote)
+	}
 	_, _ = io.WriteString(w, sb.String())
 }
 
@@ -262,8 +265,11 @@ func firstPositional(args []string) string {
 // emitFlagUsageDocument writes `schema flags <command> -j` for cmd.
 func emitFlagUsageDocument(target *cobra.Command) error {
 	flags := collectFlagUsage(target)
-	return emitRead(schemaFlagsCmd, "", flags, int64(len(flags)), 0, len(flags),
-		withExtra("for_command", commandPathWithoutRoot(target)))
+	opts := []envOpt{withExtra("for_command", commandPathWithoutRoot(target))}
+	if pinnedEnv() {
+		opts = append(opts, withExtra("policy", pinnedHelpNote))
+	}
+	return emitRead(schemaFlagsCmd, "", flags, int64(len(flags)), 0, len(flags), opts...)
 }
 
 var schemaFlagsCmd = &cobra.Command{

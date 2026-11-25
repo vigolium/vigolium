@@ -131,9 +131,8 @@ var schemaBoolColumns = sync.OnceValue(func() []boolColumn {
 		m := boolDefault.FindStringSubmatch(rest)
 		out = append(out, boolColumn{Table: table, Column: column, Default: m != nil && m[1] == "TRUE"})
 	}
-	pattern := regexp.MustCompile(ddlObjectPattern)
 	for _, ddl := range schemaTables {
-		name := pattern.FindStringSubmatch(ddl)
+		name := ddlObjectRe.FindStringSubmatch(ddl)
 		if name == nil {
 			continue
 		}
@@ -267,6 +266,8 @@ var schemaTables = []string{
 		response_title TEXT,
 		response_location TEXT,
 		response_decoded_from TEXT,
+		request_only_at_store {{TIMESTAMP}},
+		request_identity_hash TEXT,
 		parameters {{JSON}},
 		sent_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		received_at {{TIMESTAMP}},
@@ -356,6 +357,16 @@ var schemaTables = []string{
 		finding_id INTEGER NOT NULL,
 		record_uuid TEXT NOT NULL,
 		PRIMARY KEY (finding_id, record_uuid)
+	)`,
+	// Caller labels on stored records: one value per (record, key). Written by
+	// `import --tag k=v` for the records an import wrote, read by `traffic
+	// --tag` and deleted with the record (`db clean --tag`). No project column:
+	// a tag belongs to a record, which carries its own project.
+	`CREATE TABLE IF NOT EXISTS record_tags (
+		record_uuid TEXT NOT NULL,
+		key TEXT NOT NULL,
+		value TEXT NOT NULL,
+		PRIMARY KEY (record_uuid, key)
 	)`,
 	// One row per (finding, scan that observed it). findings.scan_uuid only
 	// names the MOST RECENT observer — a re-detection overwrites it — so "was
@@ -582,6 +593,25 @@ var schemaTables = []string{
 		created_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(scan_uuid, hostname, port)
 	)`,
+	// WebSocket frames the browser crawl observed (websocket_frames.go): one
+	// row per frame, in capture order, with the socket's URL and a bounded head
+	// of the payload. connection_id groups one socket's frames within a crawl.
+	`CREATE TABLE IF NOT EXISTS websocket_frames (
+		id {{AUTOINC_PK}},
+		project_uuid TEXT NOT NULL,
+		scan_uuid TEXT,
+		source TEXT,
+		url TEXT NOT NULL,
+		hostname TEXT NOT NULL,
+		connection_id TEXT NOT NULL,
+		direction TEXT NOT NULL,
+		opcode INTEGER NOT NULL,
+		payload_length INTEGER NOT NULL,
+		payload_head TEXT,
+		payload_encoding TEXT,
+		payload_truncated {{BOOL}} NOT NULL DEFAULT {{FALSE}},
+		observed_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
 	`CREATE TABLE IF NOT EXISTS scan_logs (
 		id {{AUTOINC_PK}},
 		project_uuid TEXT NOT NULL,
@@ -671,6 +701,11 @@ var schemaIndexes = []string{
 	// a b-tree insertion on every observation written.
 	"CREATE INDEX IF NOT EXISTS idx_host_obs_project_host_id ON host_observations(project_uuid, hostname, port, id)",
 
+	// -- websocket_frames --
+	// Read per host in capture order (a socket's conversation), so id rides
+	// in the index.
+	"CREATE INDEX IF NOT EXISTS idx_ws_frames_project_host_id ON websocket_frames(project_uuid, hostname, id)",
+
 	// -- findings: project-aware composite indexes --
 	"CREATE INDEX IF NOT EXISTS idx_findings_project_severity ON findings(project_uuid, severity)",
 	"CREATE INDEX IF NOT EXISTS idx_findings_project_module ON findings(project_uuid, module_id)",
@@ -707,6 +742,9 @@ var schemaIndexes = []string{
 	// -- finding_records --
 	"CREATE INDEX IF NOT EXISTS idx_finding_records_record_uuid ON finding_records(record_uuid)",
 	"CREATE INDEX IF NOT EXISTS idx_finding_records_finding_id ON finding_records(finding_id)",
+
+	// -- record_tags -- (a tag selects records: traffic --tag, db clean --tag)
+	"CREATE INDEX IF NOT EXISTS idx_record_tags_key_value ON record_tags(key, value)",
 
 	// -- finding_observations --
 	// Lookups by finding_id ride the (finding_id, scan_uuid) primary key.
@@ -984,10 +1022,25 @@ var columnMigrations = []columnMigration{
 	// module's declared class for vuln_class.
 	{"findings", "vuln_class", "TEXT"},
 	{"findings", "claimed_severity", "TEXT"},
+	// The named sessions a finding's evidence compares (additive, nullable): a
+	// cross-session module (authz-compare) records the primary session first and
+	// the compare session that reached its object second. NULL on single-session
+	// findings and older rows.
+	{"findings", "principals", "{{JSON}}"},
 	// Ingested bodies decoded at storage (response_decode.go): the
 	// content-coding the wire carried. NULL means stored as received; schema
 	// v6's one-time backfill decodes ingested rows written before it.
 	{"http_records", "response_decoded_from", "TEXT"},
+	// Write provenance (additive, nullable, no backfill): when a row was first
+	// stored without a response (the dynamic-assessment write gate's input;
+	// NULL on older rows, which fall back to has_response), and the hash of the
+	// request's Authorization/Cookie values the write-time dedup keys a
+	// body-less request on (NULL on older rows, read as "sent neither").
+	{"http_records", "request_only_at_store", "{{TIMESTAMP}}"},
+	{"http_records", "request_identity_hash", "TEXT"},
+	// A finding's proof recipe (output.ProofRecipe, additive, nullable, no
+	// backfill): NULL for modules that have not opted in and on older rows.
+	{"findings", "proof", "{{JSON}}"},
 }
 
 func init() {

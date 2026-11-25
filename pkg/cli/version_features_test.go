@@ -12,6 +12,8 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/contract"
+	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/modules"
 )
 
 // Every advertised feature still exists: its flag, variable, settings key,
@@ -34,8 +36,15 @@ func TestVersionFeaturesExist(t *testing.T) {
 			require.Regexp(t, kebab, f.Name, "feature names are stable kebab-case")
 			require.False(t, seen[f.Name], "duplicate feature")
 			seen[f.Name] = true
-			require.True(t, f.Command != "" || f.Flag != "" || f.Env != "" || f.ConfigKey != "" || f.Event != "",
+			require.True(t, f.Command != "" || f.Flag != "" || f.Env != "" || f.ConfigKey != "" || f.Event != "" || f.Module != "" || f.Table != "",
 				"a feature names its evidence")
+			if f.Table != "" {
+				assert.True(t, database.SchemaDeclaresTable(f.Table), "table %s is in the schema", f.Table)
+			}
+			if f.Module != "" {
+				assert.True(t, slices.Contains(modules.GetActiveModulesID(), f.Module) ||
+					slices.Contains(modules.GetPassiveModulesID(), f.Module), "module %s is registered", f.Module)
+			}
 
 			cmd := rootCmd
 			if f.Command != "" {

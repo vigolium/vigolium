@@ -117,7 +117,7 @@ func (m *Module) ScanPerInsertionPoint(
 	// With no WAF detected, MutateForWAF yields nothing and we return as before.
 	wafType := scanCtx.DetectedWAF(urlx.Host)
 	if wafType == "" && plain != nil {
-		if br := waf.ClassifyParts(plain.status, plain.header, []byte(plain.body)); br != nil {
+		if br := waf.ClassifyResponse(plain.status, plain.header, []byte(plain.body)); br != nil {
 			wafType = br.WAFType
 			scanCtx.MarkWAF(urlx.Host, wafType)
 		}

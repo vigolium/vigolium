@@ -19,7 +19,8 @@ var (
 	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	// "php" gates the module on hosts a PHP fingerprint marked (re-checked fail
-	// closed in the scan). Not risk:high: it runs in a default scan, but each
-	// tested path takes up to ~29 MiB of upload and can kill a PHP-FPM worker.
-	ModuleTags = []string{"php", "cve", "rce", "dos", "intrusive"}
+	// closed in the scan). risk:high: each tested path takes up to ~29 MiB of
+	// upload and can kill a PHP-FPM worker, so a broad selection runs it only at
+	// --intensity deep or with --allow-risky-payloads.
+	ModuleTags = []string{"php", "cve", "rce", "dos", "intrusive", "risk:high"}
 )

@@ -50,10 +50,22 @@ reproduces.
   vigolium kit param-mine -t https://acme.test/ -w my-params.txt --max-requests 200
 
 Names go on the query string for GET/HEAD/DELETE, into the form or JSON body
-otherwise (--location overrides). The wordlist is -w files first, then the
-built-in list (vigolium kit wordlist params). Mining an endpoint stops at
---max-requests, when the two baselines disagree (aborted: unstable), or after a
-burst of 403/429/WAF answers (aborted: blocked). A full scan does the same per
+otherwise (--location overrides). --location header mines request header names
+instead, each sent with its own random value and scored the same way; framing,
+routing and session headers (Host, Content-Length, Cookie, …) and headers the
+request already sends are never mined. --location cookie mines cookie names:
+each joins the request's Cookie header beside the cookies it already sends
+(-H 'Cookie: session=…' stays exactly as given), and the whole Cookie header is
+kept under 6 KiB. The wordlist is -w files first, then the built-in list
+(vigolium kit wordlist params, or vigolium kit wordlist headers under
+--location header).
+
+  vigolium kit param-mine -t https://acme.test/admin --location header -j
+  vigolium kit param-mine -t https://acme.test/admin --location cookie \
+      -H 'Cookie: session=abc' -j
+
+Mining an endpoint stops at --max-requests, when the two baselines disagree
+(aborted: unstable), or after a burst of 403/429/WAF answers (aborted: blocked). A full scan does the same per
 endpoint in its param-mining phase (--intensity deep or --param-mining).`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runKitParamMine,
@@ -66,7 +78,7 @@ func init() {
 	f.StringVarP(&kitParamMineMethod, "method", "X", "GET", "HTTP method")
 	f.StringVarP(&kitParamMineData, "data", "d", "", "Request body (form or JSON); names are added to it")
 	f.StringArrayVarP(&kitParamMineHeaders, "header", "H", nil, "Request header 'Name: value' (repeatable)")
-	f.StringVar(&kitParamMineLocation, "location", "auto", "Where names go: auto, query, form, json")
+	f.StringVar(&kitParamMineLocation, "location", "auto", "Where names go: auto, query, form, json, header, cookie")
 	f.StringArrayVarP(&kitParamMineWordlists, "wordlist", "w", nil, "File of parameter names, one per line, tried before the built-in list (repeatable)")
 	f.BoolVar(&kitParamMineNoBuiltin, "no-builtin", false, "Use only the -w wordlists, not the built-in list")
 	f.IntVar(&kitParamMineMaxRequests, "max-requests", parammine.DefaultMaxRequests, "Request budget, baselines and confirmations included")
@@ -116,6 +128,7 @@ func runKitParamMine(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return clicommon.UsageErrorf("invalid target %q: %v", target, err)
 	}
+	base = withKitParamMineHeaders(base, headers)
 
 	gate, err := newSendScopeGate(kitParamMineIgnoreScope)
 	if err != nil {
@@ -125,7 +138,7 @@ func runKitParamMine(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	words, err := kitParamMineWords()
+	words, err := kitParamMineWords(loc)
 	if err != nil {
 		return err
 	}
@@ -204,9 +217,9 @@ func paramMineOutcome(aborted string) error {
 	return nil
 }
 
-// kitParamMineWords merges the -w files and the built-in list, first
-// occurrence wins.
-func kitParamMineWords() ([]string, error) {
+// kitParamMineWords merges the -w files and the built-in list (the header
+// list under --location header), first occurrence wins.
+func kitParamMineWords(loc parammine.Location) ([]string, error) {
 	var sources [][]string
 	for _, path := range kitParamMineWordlists {
 		names, err := parammine.ReadWordlistFile(path)
@@ -216,7 +229,11 @@ func kitParamMineWords() ([]string, error) {
 		sources = append(sources, names)
 	}
 	if !kitParamMineNoBuiltin {
-		builtin, err := parammine.Builtin()
+		builtinList := parammine.Builtin
+		if loc == parammine.LocationHeader {
+			builtinList = parammine.BuiltinHeaders
+		}
+		builtin, err := builtinList()
 		if err != nil {
 			return nil, fmt.Errorf("built-in parameter wordlist: %w", err)
 		}
@@ -227,15 +244,48 @@ func kitParamMineWords() ([]string, error) {
 	return parammine.MergeWordlists(0, sources...), nil
 }
 
+// withKitParamMineHeaders sets every -H header on base. The builder drops
+// headers on a bodiless GET (it delegates to the plain URL form), which lost
+// -H on the common case and let header mining re-send a header the operator
+// already set.
+func withKitParamMineHeaders(base *httpmsg.HttpRequestResponse, headers map[string]string) *httpmsg.HttpRequestResponse {
+	if len(headers) == 0 {
+		return base
+	}
+	req := base.Request()
+	for name, value := range headers {
+		if strings.EqualFold(name, "Host") || strings.EqualFold(name, "Content-Length") {
+			continue
+		}
+		if req.Header(name) != value {
+			req = req.WithHeader(name, value)
+		}
+	}
+	return httpmsg.NewHttpRequestResponse(req, nil)
+}
+
 func kitParamMineHeaderMap(raw []string) (map[string]string, error) {
-	out := make(map[string]string, len(raw))
+	pairs, err := kitHeaderPairs(raw)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		out[p[0]] = p[1]
+	}
+	return out, nil
+}
+
+// kitHeaderPairs parses -H 'Name: value' flags in order, keeping repeats.
+func kitHeaderPairs(raw []string) ([][2]string, error) {
+	out := make([][2]string, 0, len(raw))
 	for _, h := range raw {
 		name, value, ok := strings.Cut(h, ":")
 		name = strings.TrimSpace(name)
 		if !ok || name == "" {
 			return nil, clicommon.UsageErrorf("invalid header %q (want 'Name: value')", h)
 		}
-		out[name] = strings.TrimSpace(value)
+		out = append(out, [2]string{name, strings.TrimSpace(value)})
 	}
 	return out, nil
 }

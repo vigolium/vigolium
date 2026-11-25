@@ -232,11 +232,36 @@ func (db *DB) EnsureSchemaReady(ctx context.Context) error {
 		return err
 	}
 
-	gaps := db.schemaGaps(ctx)
-	if len(gaps) == 0 {
+	gaps, gapErr := db.schemaGapsDetail(ctx)
+	if gapErr == nil && len(gaps) == 0 {
 		zap.L().Debug("schema ready; skipping schema DDL")
 		return nil
 	}
-	zap.L().Debug("schema incomplete; creating schema", zap.Strings("missing", gaps))
+	// A fresh file (no core table) is initialized: creating an empty store
+	// migrates nobody's data. An initialized store that is behind is
+	// migrated only when the configuration allows it.
+	if gapErr == nil {
+		if refusal := db.refuseImplicitMigration(ctx, gaps); refusal != nil {
+			return refusal
+		}
+	}
+	zap.L().Debug("schema incomplete; creating schema", zap.Strings("missing", db.schemaGaps(ctx)))
 	return db.CreateSchema(context.WithoutCancel(ctx))
+}
+
+// refuseImplicitMigration returns a *SchemaOutdatedError for an initialized
+// store that is behind this binary's schema, unless this handle's
+// configuration lets an open migrate it (DatabaseConfig.MigratesImplicitly:
+// VIGOLIUM_AUTO_MIGRATE, else database.auto_migrate_on_read, default off).
+//
+// The refusal is the default because a migration is not free: its gated
+// backfills are O(rows), it can run past the deadline of the leg that
+// happened to open the store, and it leaves the file unreadable by the
+// binary that wrote it. `vigolium db migrate` (DB.Migrate) is the explicit
+// way, and the error names it with this store's path.
+func (db *DB) refuseImplicitMigration(ctx context.Context, gaps []string) error {
+	if len(gaps) == 0 || db.cfg.MigratesImplicitly() {
+		return nil
+	}
+	return &SchemaOutdatedError{DBVersion: db.schemaVersion(ctx), Missing: gaps, Path: db.path}
 }

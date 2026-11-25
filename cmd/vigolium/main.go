@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/vigolium/vigolium/internal/paths/earlyenv"
 	"github.com/vigolium/vigolium/pkg/cli"
 )
 
@@ -15,6 +16,11 @@ import (
 // The banner is presentation and now lives on stderr, emitted from the root
 // PersistentPreRunE once the command and its flags are actually known. See
 // pkg/cli/banner.go.
+//
+// earlyenv.Restore runs first: under VIGOLIUM_STATE_DIR the package's init
+// pointed HOME at the state tree for the embedded libraries' init, and
+// everything from here on sees the operator's real HOME again.
 func main() {
+	earlyenv.Restore()
 	cli.Execute()
 }

@@ -7,11 +7,12 @@
 // is an HTTP/1-style "key: value\r\n" block carrying grpc-status / grpc-message.
 //
 // This package deliberately depends on nothing outside the standard library. It
-// does NOT link google.golang.org/grpc or google.golang.org/protobuf and it does
-// NOT decode protobuf message payloads — only the gRPC-Web framing envelope. Full
-// protobuf descriptor decoding and native HTTP/2 gRPC support are explicit
-// follow-ups (see pkg/modules/active/grpc_surface_audit for the tracking notes)
-// that would require those two modules; keep them out of here.
+// does NOT link google.golang.org/grpc or google.golang.org/protobuf. Beyond the
+// framing envelope it decodes one family of protobuf payloads: the server
+// reflection messages and the service/method part of a FileDescriptorProto
+// (reflection.go), read with a hand-written wire reader. Typed field decoding
+// and native HTTP/2 gRPC remain follow-ups (see
+// pkg/modules/active/grpc_surface_audit); keep those two modules out of here.
 package grpcweb
 
 import (

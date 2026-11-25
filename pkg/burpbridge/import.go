@@ -13,7 +13,7 @@ const importBatchSize = 200
 // RecordUpserter is the database operation needed by the bridge importer.
 // database.Repository implements it directly.
 type RecordUpserter interface {
-	UpsertSnapshotRecord(context.Context, *httpmsg.HttpRequestResponse, string, string) (string, string, error)
+	UpsertCapturedRecord(context.Context, *httpmsg.HttpRequestResponse, string, string, database.Capture) (string, string, error)
 }
 
 type ImportResult struct {
@@ -37,12 +37,18 @@ func (r ImportResult) Stored() int { return r.Inserted + r.Updated + r.Unchanged
 // database. It pages the listener so temporary refs remain inspectable, and
 // uses the snapshot upsert path so repeated imports are idempotent while a
 // changed response refreshes the existing row.
+//
+// Each stored row's sent_at is the capture time the listener reported for it
+// (the search summary's time), not the time of the import; created_at stays
+// the insert time. scanUUID ("" for none) is stamped on every new row: the
+// importing invocation's scans row.
 func ImportIntoRepository(
 	ctx context.Context,
 	client *Client,
 	repo RecordUpserter,
 	query Query,
 	projectUUID string,
+	scanUUID string,
 ) (ImportResult, error) {
 	result := ImportResult{Source: Source}
 	query.ProjectUUID = projectUUID
@@ -96,7 +102,8 @@ func ImportIntoRepository(
 			// The inspect reply is preferred over the page's because it is the
 			// reply this row came from; both fall back to Burp identically, so
 			// a listener that reports nothing still writes what it always did.
-			_, outcome, err := repo.UpsertSnapshotRecord(ctx, rr, inspection.Source(), projectUUID)
+			_, outcome, err := repo.UpsertCapturedRecord(ctx, rr, inspection.Source(), projectUUID,
+				database.Capture{SentAt: summary.SentAt, ScanUUID: scanUUID})
 			if err != nil {
 				return result, fmt.Errorf("store bridge record %s: %w", summary.URL, err)
 			}

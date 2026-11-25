@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -40,6 +41,42 @@ func TestInstallCoreDeps_FailsNotReady(t *testing.T) {
 	_ = captureStderr(t, func() { err = installCoreDeps() })
 	if err != nil {
 		t.Fatalf("--offline installCoreDeps = %v, want nil", err)
+	}
+}
+
+// TestInstallCoreDeps_FailedInstallExitsNonZero: a dependency install that
+// fails fails init (not_ready, exit 1, no marker) even when the check after
+// it passes, so a driver can trust init's exit code rather than the marker.
+func TestInstallCoreDeps_FailedInstallExitsNonZero(t *testing.T) {
+	marker := stageCoreDeps(t, coreDepState{chromeMissing: true})
+	calls := 0
+	checkCoreDeps = func(*config.Settings) coreDepState {
+		calls++
+		if calls == 1 {
+			return coreDepState{chromeMissing: true}
+		}
+		return coreDepState{} // a system browser turned up; the install still failed
+	}
+	runCoreDepFixes = func(context.Context, *diagnostics.Report, *config.Settings, []string) []diagnostics.FixResult {
+		return []diagnostics.FixResult{
+			{Label: "nuclei-templates", Success: true, Message: "installed"},
+			{Label: "chrome", Success: false, Message: "download failed: connection reset"},
+		}
+	}
+	var err error
+	_ = captureStderr(t, func() { err = installCoreDeps() })
+	var coded interface{ Code() apicontract.ErrorCode }
+	if !errors.As(err, &coded) || coded.Code() != apicontract.CodeNotReady {
+		t.Fatalf("installCoreDeps = %v, want a not_ready error", err)
+	}
+	if coded.Code().Exit() != apicontract.ExitError {
+		t.Fatalf("not_ready exits %d, want %d", coded.Code().Exit(), apicontract.ExitError)
+	}
+	if !strings.Contains(err.Error(), "chrome (download failed: connection reset)") || strings.Contains(err.Error(), "nuclei-templates (") {
+		t.Errorf("error %q should name the failed install only", err)
+	}
+	if _, statErr := os.Stat(marker); statErr == nil {
+		t.Fatal("marker stamped although an install failed")
 	}
 }
 

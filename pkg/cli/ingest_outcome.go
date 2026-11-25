@@ -161,8 +161,11 @@ func (o *ingestOutcome) noteFormat(format string) {
 // Safe for concurrent use: InputSource.Next may be called from more than one
 // goroutine, and preloadedResponseSource saves from inside it.
 type ingestSaver struct {
-	repo          *database.Repository
-	projectUUID   string
+	repo        *database.Repository
+	projectUUID string
+	// scanUUID is the ingest's scans row (invocationScanRow), stamped on
+	// every record it inserts.
+	scanUUID      string
 	staticMatcher *config.ScopeMatcher
 	// scopeMatcher is nil unless scope.applied_on_ingest is set.
 	scopeMatcher *config.ScopeMatcher
@@ -186,7 +189,8 @@ func (s *ingestSaver) save(ctx context.Context, rr *httpmsg.HttpRequestResponse)
 		return
 	}
 
-	uuid, err := s.repo.SaveRecord(ctx, rr, database.RecordSourceIngestCLI, s.projectUUID)
+	uuid, err := s.repo.SaveRecordWithLineage(ctx, rr, database.RecordSourceIngestCLI, s.projectUUID,
+		database.RecordLineage{ScanUUID: s.scanUUID})
 	if err != nil {
 		zap.L().Warn("ingest: failed to store record",
 			zap.String("url", rr.Target()), zap.Error(err))

@@ -240,11 +240,11 @@ test-e2e-postgres: install-gotestsum
 
 # Run canary tests - DVWA, VAmPI, Juice Shop (requires Docker, slower).
 # The full canary suite (nuclei known-issue-scan + dynamic assessment against
-# several live targets) exceeds Go's default 10m binary timeout, so raise it
-# to match test-e2e.
+# several live targets) runs ~80-100 minutes serially (the VAmPI known-issue
+# scan alone is ~22m), so the binary timeout leaves headroom above that.
 test-canary: install-gotestsum
 	@echo "$(PREFIX) Running canary tests (requires Docker)..."
-	$(TESTCMD) $(TESTFLAGS) -tags=canary -timeout 60m ./test/e2e/...
+	$(TESTCMD) $(TESTFLAGS) -tags=canary -timeout 150m ./test/e2e/...
 
 # Expectation e2e kit (test/e2e-expect). Two halves, both under the e2e tag:
 #   lab  — scan/fuzz/probe/lifecycle against an in-process lab of planted bugs,

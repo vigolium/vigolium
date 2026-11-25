@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"net/url"
 	"slices"
 	"sort"
@@ -21,6 +22,7 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/vigolium/vigolium/pkg/authsig"
+	"github.com/vigolium/vigolium/pkg/deparos/waf"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"go.uber.org/zap"
 )
@@ -72,6 +74,10 @@ type Capture struct {
 	// fetch response before dedup (the crawl's live-session
 	// logged-out detector). Runs on the capture goroutine; must be cheap.
 	OnResponse func(entry *TrafficEntry)
+	// OnBlock, when set, receives every one of those responses that
+	// waf.ClassifyResponse calls a block or a challenge page (a 200/202
+	// challenge included), with its host. Same goroutine and cost rule.
+	OnBlock func(host string, status int, block *waf.BlockResult)
 	// workerSessions holds the CDP sessionIDs of attached service-worker targets.
 	// Worker sessions are not page targets, so they never appear in Browser.Pages();
 	// tracking them lets isSessionValid accept them and fetchResponseBody pull their
@@ -118,6 +124,9 @@ type Capture struct {
 	// extraParked holds requestWillBeSentExtraInfo that arrived before its
 	// requestWillBeSent (or for a later redirect hop). Guarded by mu.
 	extraParked extraPark
+	// sockets maps an open WebSocket's request id to its parsed URL
+	// (websocket.go). Guarded by mu.
+	sockets map[proto.NetworkRequestID]wsSocket
 	// Lazy request-body fetches (capture_extrainfo.go).
 	postDataState
 	bodyPoolState
@@ -276,6 +285,24 @@ func (c *Capture) subscribeEvents(browser *rod.Browser) {
 		},
 		func(e *proto.NetworkLoadingFailed, sessionID proto.TargetSessionID) bool {
 			c.onLoadingFailed(e)
+			return c.isStopped()
+		},
+		// WebSocket frames (websocket.go): the socket's URL arrives on
+		// creation, each frame carries only the socket's request id.
+		func(e *proto.NetworkWebSocketCreated) bool {
+			c.onWebSocketCreated(e)
+			return c.isStopped()
+		},
+		func(e *proto.NetworkWebSocketFrameSent) bool {
+			c.onWebSocketFrame(e.RequestID, FrameSent, e.Response)
+			return c.isStopped()
+		},
+		func(e *proto.NetworkWebSocketFrameReceived) bool {
+			c.onWebSocketFrame(e.RequestID, FrameReceived, e.Response)
+			return c.isStopped()
+		},
+		func(e *proto.NetworkWebSocketClosed) bool {
+			c.onWebSocketClosed(e)
 			return c.isStopped()
 		},
 		// Service-worker targets run in their own CDP session, so their traffic —
@@ -1460,9 +1487,9 @@ func (c *Capture) BodiesFailed() int {
 }
 
 // observeResponse hands a completed in-scope document/XHR/fetch response to
-// OnResponse.
+// OnResponse, and to OnBlock when it classifies as a block or challenge.
 func (c *Capture) observeResponse(entry *TrafficEntry) {
-	if c.OnResponse == nil || entry == nil || entry.Response == nil {
+	if (c.OnResponse == nil && c.OnBlock == nil) || entry == nil || entry.Response == nil {
 		return
 	}
 	switch strings.ToLower(entry.ResourceType) {
@@ -1470,11 +1497,32 @@ func (c *Capture) observeResponse(entry *TrafficEntry) {
 	default:
 		return
 	}
-	if c.ScopeFilter != nil {
-		u, err := url.Parse(entry.Request.URL)
-		if err != nil || !c.ScopeFilter(u.Hostname(), u.Path) {
-			return
-		}
+	u, err := url.Parse(entry.Request.URL)
+	if err != nil {
+		return
 	}
-	c.OnResponse(entry)
+	if c.ScopeFilter != nil && !c.ScopeFilter(u.Hostname(), u.Path) {
+		return
+	}
+	if c.OnResponse != nil {
+		c.OnResponse(entry)
+	}
+	if c.OnBlock != nil {
+		c.observeBlock(u.Hostname(), entry.Response)
+	}
+}
+
+// observeBlock classifies one captured response with the scan's shared
+// classifier and reports a block or challenge to OnBlock.
+func (c *Capture) observeBlock(host string, resp *ResponseData) {
+	if host == "" || !waf.IsCandidateStatusCode(resp.Status) {
+		return
+	}
+	header := make(http.Header, len(resp.Headers))
+	for k, v := range resp.Headers {
+		header.Set(k, v)
+	}
+	if block := waf.ClassifyResponse(resp.Status, header, resp.Body); block != nil {
+		c.OnBlock(host, resp.Status, block)
+	}
 }

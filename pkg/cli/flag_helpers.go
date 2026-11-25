@@ -81,6 +81,8 @@ func registerScanPipelineFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&globalHeuristicsCheck, "heuristics-check", "", `Pre-scan heuristics level: none, basic, advanced (default: basic)`)
 	flags.BoolVar(&globalSkipHeuristics, "skip-heuristics", false, "Disable pre-scan heuristics (equivalent to --heuristics-check=none)")
 	registerAllowRiskyPayloadsFlag(flags)
+	registerAllowWritesFlag(flags)
+	registerMaxModuleTierFlag(flags)
 	registerNoParamDedupFlag(flags)
 	flags.StringVar(&scanOpts.ResumeScanUUID, "resume-scan", "",
 		"Resume a previous scan by UUID: reuse its scan row and cursor and skip the records/modules its coverage ledger records as done. Refused before anything is sent when the scan does not exist (scan_not_found), is still running (scan_running), or its targets, scope or modules differ from this run's (resume_mismatch; --force resumes anyway)")
@@ -89,6 +91,7 @@ func registerScanPipelineFlags(flags *pflag.FlagSet) {
 	registerParamMiningFlag(flags)
 	registerRequestBudgetFlags(flags)
 	registerScanDocumentFlags(flags)
+	_ = flags.SetAnnotation("only", scanPipelineAnnotation, []string{pipelineFull})
 }
 
 // registerIntensityFlag, registerScopeOriginFlag and
@@ -176,6 +179,14 @@ func registerAllowRiskyPayloadsFlag(flags *pflag.FlagSet) {
 	f.NoOptDefVal = "true"
 }
 
+// registerMaxModuleTierFlag declares --max-module-tier for the same scan
+// commands as --allow-risky-payloads. It binds into scanOpts.MaxModuleTier;
+// the value is validated when the scan resolves its options.
+func registerMaxModuleTierFlag(flags *pflag.FlagSet) {
+	flags.StringVar(&scanOpts.MaxModuleTier, "max-module-tier", "",
+		"Hard ceiling on module tiers: light, moderate, heavy or intrusive. Binds explicit -m/--module-tag selections too; config dynamic-assessment.max_module_tier, the lower of the two applies")
+}
+
 // registerNoParamDedupFlag declares --no-param-dedup for the same scan commands
 // as --allow-risky-payloads (scan, run, scan-url, scan-request). It binds into
 // scanOpts.NoParamDedup, which the executor mirrors into
@@ -240,10 +251,13 @@ func registerLightweightScanIOFlags(flags *pflag.FlagSet) {
 	flags.BoolVarP(&globalStateless, "stateless", "S", false, "Use a temporary database that is discarded after the scan (pass --output/--format to persist results)")
 	registerKeepDBOnErrorFlag(flags)
 	registerAllowRiskyPayloadsFlag(flags)
+	registerAllowWritesFlag(flags)
+	registerMaxModuleTierFlag(flags)
 	registerNoParamDedupFlag(flags)
 	registerRequestBudgetFlags(flags)
 	registerScanDocumentFlags(flags)
 	flags.StringSliceVar(&globalSkipPhases, "skip", nil, "Skip these phases (repeatable: "+runner.PhaseNamesDesc(true)+"; aliases accepted, see 'vigolium run --help')")
+	_ = flags.SetAnnotation("skip", scanPipelineAnnotation, []string{pipelineSingleRequest})
 	flags.StringVar(&scanFailOn, "fail-on", "", failOnUsage("for CI/agent gating; implies --fail-on-partial; --soft-fail overrides."))
 	flags.BoolVar(&scanFailOnPartial, "fail-on-partial", false, "Exit 5 (incomplete) when the scan's coverage was partial (a phase cut short, blocked, or failed); implied by --fail-on")
 	registerBaselineFlags(flags)
@@ -276,6 +290,9 @@ func registerEventsFlag(flags *pflag.FlagSet) {
 		"Emit a machine-readable event stream to stdout while the scan runs: 'ndjson' (one JSON object per line, flushed per event). "+
 			"The human console stays on stderr, so a driver reads the stream with 2>/dev/null. "+
 			"Events: scan.started, phase.started/progress/finished, waf.block, waf.pacing, finding.new, error, scan.finished.")
+	// Marks the flag as the scan event stream, so an invocation refused before
+	// the stream began still writes its one scan.finished (scan_events_refusal.go).
+	_ = flags.SetAnnotation("events", scanEventsAnnotation, []string{"true"})
 }
 
 // markFlagDeprecated hides oldName from --help and makes pflag emit a one-time

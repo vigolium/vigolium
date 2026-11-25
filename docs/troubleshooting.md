@@ -50,11 +50,11 @@ vigolium scan -t https://example.com --skip spidering
 
 ## Scope Mismatch (No Results)
 
-**Symptoms:** The scan exits `1` with `no_targets_in_scope` and lists each target with the rule that refused it (`scope.host.include`, `scope.path.exclude`, `static_file`, …). Or it completes `partial` with reason `targets_out_of_scope`, or produces zero findings.
+**Symptoms:** The scan exits `2` with `out_of_scope` and lists each target with the rule that refused it (`scope.host.include`, `scope.path.exclude`, `scope.port.include`, `private_address`, `metadata_address`, …). Or it completes `partial` with reason `targets_out_of_scope` (records from `-i` or the DB dropped one by one), or produces zero findings.
 
 **Solutions:**
 
-Verify the target URL matches the configured scope. The scanner only tests URLs that fall within the defined scope, and checks every target against it before sending anything: when scope refuses all of them the scan stops there (nothing is sent, the scan row is `failed` with `stop_reason: no_targets_in_scope`); when it refuses some, the rest are scanned and the refused ones are listed in the banner and under the row's `preflight` outcome. `scan-url` and `scan-request` apply the same rules, with or without `-S`; pass `--ignore-scope` to scan a single target the scope refuses.
+Verify the target URL matches the configured scope. The scanner only tests URLs that fall within the defined scope, and checks every target against it before sending anything: when scope refuses any of them the command stops there (exit `2` `out_of_scope`, nothing sent, no scan row). `scan-url` and `scan-request` apply the same rules, with or without `-S`; pass `--ignore-scope` to scan a target the scope refuses. A private or loopback target the host rule does not name needs a literal `scope.host.include` entry, the `-t` target itself, or a `scope.cidr.include` prefix.
 
 Check the current scope configuration:
 

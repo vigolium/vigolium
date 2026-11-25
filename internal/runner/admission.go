@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -25,9 +26,11 @@ type (
 // The matcher is built exactly as the runner builds the one the executor
 // enforces — config.NewScopeMatcher(scope, targets...) over the full target
 // list — so origin mode is computed over the same index and the verdict here is
-// the one sendItem will apply. Each target is checked as the executor sees its
-// work item: the hostname without port, and the request-target (path plus
-// query, "/" when empty).
+// the one sendItem will apply. Each target is checked as the requester sends
+// it (config.ScopeMatcher.RejectTarget): its port (the scheme's default when
+// the URL names none), the hostname without port, the request-target (path
+// plus query, "/" when empty), and the address rules an IP-literal or
+// instance-metadata host is judged on without resolving it.
 //
 // Exported so pkg/cli can call it before the runner exists. A target that does
 // not parse as a URL is admitted: scope cannot evaluate it, and refusing it here
@@ -39,12 +42,12 @@ func AdmitTargets(scope config.ScopeConfig, targets []string) TargetAdmission {
 	}
 	matcher := config.NewScopeMatcher(scope, targets...)
 	for _, target := range targets {
-		host, path, ok := admissionHostPath(target)
+		host, port, path, ok := admissionHostPath(target)
 		if !ok {
 			adm.Admitted = append(adm.Admitted, target)
 			continue
 		}
-		if rule := matcher.RejectReason(host, path); rule != "" {
+		if rule, _ := matcher.RejectTarget(host, port, path); rule != "" {
 			adm.Rejected = append(adm.Rejected, TargetVerdict{Target: target, Host: host, Rule: rule})
 			continue
 		}
@@ -53,20 +56,25 @@ func AdmitTargets(scope config.ScopeConfig, targets []string) TargetAdmission {
 	return adm
 }
 
-// admissionHostPath splits a target into the (host, path) pair the executor's
-// pre-send scope check evaluates. A schemeless target gets the same default
-// scheme normalizeTargetSchemes gives it.
-func admissionHostPath(target string) (host, path string, ok bool) {
+// admissionHostPath splits a target into the (host, port, path) the
+// requester's send-time scope check evaluates. A schemeless target gets the
+// same default scheme normalizeTargetSchemes gives it, and a URL without a
+// port its scheme's default port.
+func admissionHostPath(target string) (host string, port int, path string, ok bool) {
 	target = strings.TrimSpace(target)
 	if target == "" {
-		return "", "", false
+		return "", 0, "", false
 	}
 	normalized, _ := httpmsg.EnsureURLSchemeTracked(target, httpmsg.DefaultTargetScheme)
 	u, err := url.Parse(normalized)
 	if err != nil || u.Hostname() == "" {
-		return "", "", false
+		return "", 0, "", false
 	}
-	return u.Hostname(), u.RequestURI(), true
+	port, _ = strconv.Atoi(u.Port())
+	if port == 0 {
+		port = config.DefaultPortForScheme(u.Scheme)
+	}
+	return u.Hostname(), port, u.RequestURI(), true
 }
 
 // ErrNoTargetsInScope is what RunNativeScan's error wraps when scope admitted

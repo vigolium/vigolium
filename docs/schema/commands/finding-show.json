@@ -114,6 +114,12 @@
         "claimed_severity": {
           "type": "string"
         },
+        "principals": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "cvss_score": {
           "type": "number"
         },
@@ -158,6 +164,9 @@
         },
         "payload": {
           "type": "string"
+        },
+        "proof": {
+          "$ref": "#/$defs/output.ProofRecipe"
         },
         "verification": {
           "$ref": "#/$defs/database.FindingVerification"
@@ -313,6 +322,12 @@
         },
         "matches_not_found": {
           "type": "boolean"
+        },
+        "tags": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
         }
       },
       "additionalProperties": false,
@@ -368,6 +383,7 @@
             "not_ready",
             "out_of_scope",
             "output_too_large",
+            "pace_unsupported",
             "partial",
             "payload_too_large",
             "pdf_failed",
@@ -379,6 +395,7 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "refused_by_policy",
             "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
@@ -617,6 +634,271 @@
       "required": [
         "verdict",
         "at"
+      ]
+    },
+    "output.ProofControl": {
+      "oneOf": [
+        {
+          "required": [
+            "method",
+            "url",
+            "insertion_point",
+            "payload_template"
+          ]
+        },
+        {
+          "required": [
+            "baseline_record_uuid"
+          ]
+        }
+      ],
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "body": {
+          "type": "string"
+        },
+        "insertion_point": {
+          "$ref": "#/$defs/output.ProofInsertionPoint"
+        },
+        "payload_template": {
+          "type": "string"
+        },
+        "baseline_record_uuid": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "output.ProofInsertionPoint": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "output.ProofOracle": {
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "body_contains"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "value"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "body_absent"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "value"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "header_contains"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "header",
+              "value"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "timing_delta"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "min_delta_ms",
+              "repeat"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "body_similarity"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "threshold"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "body_contains",
+            "body_absent",
+            "status_differs",
+            "header_contains",
+            "timing_delta",
+            "oast_interaction",
+            "body_similarity"
+          ]
+        },
+        "value": {
+          "type": "string"
+        },
+        "header": {
+          "type": "string"
+        },
+        "min_delta_ms": {
+          "type": "integer"
+        },
+        "repeat": {
+          "type": "integer"
+        },
+        "threshold": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind"
+      ]
+    },
+    "output.ProofPreconditions": {
+      "properties": {
+        "method_safe": {
+          "type": "boolean"
+        },
+        "principal": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "method_safe"
+      ]
+    },
+    "output.ProofRecipe": {
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/output.ProofRequest"
+        },
+        "control": {
+          "$ref": "#/$defs/output.ProofControl"
+        },
+        "oracle": {
+          "$ref": "#/$defs/output.ProofOracle"
+        },
+        "preconditions": {
+          "$ref": "#/$defs/output.ProofPreconditions"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request",
+        "control",
+        "oracle",
+        "preconditions"
+      ]
+    },
+    "output.ProofRequest": {
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "body": {
+          "type": "string"
+        },
+        "insertion_point": {
+          "$ref": "#/$defs/output.ProofInsertionPoint"
+        },
+        "payload_template": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "method",
+        "url",
+        "headers",
+        "insertion_point",
+        "payload_template"
       ]
     },
     "recon.FaviconInfo": {

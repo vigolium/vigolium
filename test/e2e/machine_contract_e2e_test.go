@@ -252,15 +252,32 @@ var machineContractRows = map[string]contractRow{
 	"storage upload":   {skip: needsS3},
 
 	// Schemas.
-	"schema":         {},
-	"schema list":    {},
-	"schema command": {args: []string{"finding"}},
-	"schema event":   {},
-	"schema error":   {},
-	"schema plan":    {},
-	"schema all":     {},
-	"schema flags":   {args: []string{"scan"}},
-	"schema storage": {},
+	"schema":                  {},
+	"schema list":             {},
+	"schema command":          {args: []string{"finding"}},
+	"schema event":            {},
+	"schema error":            {},
+	"schema plan":             {},
+	"schema all":              {},
+	"schema flags":            {args: []string{"scan"}},
+	"schema storage":          {},
+	"schema commands":         {},
+	"schema pace":             {},
+	"schema proof":            {},
+	"schema block-signatures": {},
+
+	"explain-argv":    {args: []string{"version"}},
+	"scan coverage":   {args: []string{seedScan1}},
+	"traffic request": {args: []string{seedRecord}},
+
+	"kit cookies": {skip: "reads this machine's browser cookie stores (a keychain prompt on macOS); covered by kit_cookies tests"},
+	// The isolated HOME holds no browser cookie store: not_ready, exit 1.
+	"kit cookies doctor":   {exit: 1},
+	"kit cookies profiles": {},
+	"kit h2-probe":         {skip: "needs an HTTP/2 (TLS, ALPN h2) server; covered by pkg/h2raw and kit_h2_probe tests"},
+	"kit unlock-walk":      {skip: "launches a browser; covered by pkg/spitolas unlock walk tests"},
+	// An uncracked ViewState (zero MAC): exit 0 with cracked false.
+	"kit viewstate-crack": {args: []string{"--generator", "CA0B0334", "/wEPApYBZAAAAAAAAAAAAAAAAAAAAAAAAAAA"}},
 
 	"strategy": {},
 	// Verbs added beside the existing commands.

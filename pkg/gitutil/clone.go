@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vigolium/vigolium/internal/paths"
 	"go.uber.org/zap"
 )
 
@@ -35,8 +36,7 @@ func CloneRepo(gitURL string, opts CloneOptions) (string, error) {
 
 	storagePath := opts.StoragePath
 	if storagePath == "" {
-		home, _ := os.UserHomeDir()
-		storagePath = filepath.Join(home, ".vigolium", "source-repos")
+		storagePath = paths.VigoliumPath("source-repos")
 	}
 
 	// Derive directory name from git URL

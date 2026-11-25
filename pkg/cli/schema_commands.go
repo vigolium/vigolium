@@ -29,7 +29,12 @@ var schemaCommandsCmd = &cobra.Command{
 		"state (mutates), whether it writes user-global state shared across engagements (writes_global: the " +
 		"config file and scope, skills installs, the binary, another run's session), whether its job is to send " +
 		"requests to a target (sends_traffic), and the flags that take a value. Value flags inherited from the " +
-		"root are listed once, as global_value_flags. Name a command to get its row alone.",
+		"root are listed once, as global_value_flags. Each row also names every other spelling of the command " +
+		"(aliases, `run <phase>` included), the argv words that name a target and their kind (targets), and how far " +
+		"it reaches (reach: none, line, store, unbounded) with the flags that change that (reach_flags; each set flag " +
+		"replaces the reach, in order), the scan pipeline it runs (pipeline: full or single-request) and, for a tool " +
+		"shim or a phase front door, the native lines it runs as (translates_to). `vigolium explain-argv -j -- <argv...>` answers the same for one command " +
+		"line. Name a command to get its row alone.",
 	Example: "  vigolium schema commands -j\n  vigolium schema commands scan stop -j",
 	Args:    cobra.ArbitraryArgs,
 	RunE:    runSchemaCommands,
@@ -38,7 +43,7 @@ var schemaCommandsCmd = &cobra.Command{
 func init() {
 	schemaCmd.AddCommand(schemaCommandsCmd)
 	registerCommandSchema(contract.Command{Name: "schema commands", Item: commandTraitView{}, Extras: schemaCommandsExtras{},
-		Description: "One row per command: kind, db (none/read/write), reads_store, mutates, writes_global, sends_traffic, read_only_flag and value_flags; global_value_flags are the root's."})
+		Description: "One row per command: kind, db (none/read/write), reads_store, mutates, writes_global, sends_traffic, read_only_flag, value_flags, aliases (every other spelling, `run <phase>` included), targets (the flag or positional naming a target, and its kind: url, host, file, input, record_uuid, scan_uuid, finding_id), reach (none, line, store, unbounded), reach_flags (each set flag replaces the reach, in order), pipeline (full or single-request, on the commands that run the scan pipeline) and translates_to (the native lines a shim or phase front door runs as); global_value_flags are the root's, global_reach_flags apply to every command."})
 }
 
 // commandTraitView is one command's row of `schema commands -j`.
@@ -69,6 +74,31 @@ type commandTraitView struct {
 	// local and inherited from a parent group, without the root's
 	// global_value_flags.
 	ValueFlags []string `json:"value_flags"`
+	// Aliases are every other spelling of the command path (each segment by
+	// its name or an alias); `run` lists `run <phase>` for every phase
+	// spelling it accepts.
+	Aliases []string `json:"aliases"`
+	// Targets are the argv words that name a target, and of what kind
+	// (command_reach.go).
+	Targets []targetSpec `json:"targets"`
+	// Reach is how far the command reaches by default: none, line, store or
+	// unbounded.
+	Reach string `json:"reach"`
+	// ReachFlags change Reach when set: applied in order, the last
+	// applicable entry wins. global_reach_flags apply to every command.
+	ReachFlags []reachFlag `json:"reach_flags"`
+	// ReachNote says what the reach or a target means where the words alone
+	// do not.
+	ReachNote string `json:"reach_note,omitempty"`
+	// Pipeline is the scan pipeline the command runs: full (the phase
+	// pipeline --only, --skip and --strategy select from: scan, run,
+	// fingerprint) or single-request (the one request the line names:
+	// scan-url, scan-request). Absent on every other command.
+	Pipeline string `json:"pipeline,omitempty" jsonschema:"enum=full,enum=single-request"`
+	// TranslatesTo lists every native command line the command runs as,
+	// whatever else its argv says (`<command>` or `run <canonical phase>`): a
+	// tool shim's translations, and `run fingerprint` for `fingerprint`.
+	TranslatesTo []string `json:"translates_to,omitempty"`
 }
 
 // schemaCommandsExtras are `schema commands -j`'s top-level keys.
@@ -76,6 +106,9 @@ type schemaCommandsExtras struct {
 	// GlobalValueFlags are the root's persistent value-taking flags, which
 	// every command accepts.
 	GlobalValueFlags []string `json:"global_value_flags"`
+	// GlobalReachFlags reach none on every command that accepts them
+	// (--help, --usage, --dry-run): they print and exit.
+	GlobalReachFlags []reachFlag `json:"global_reach_flags"`
 }
 
 func runSchemaCommands(cmd *cobra.Command, args []string) error {
@@ -95,7 +128,8 @@ func runSchemaCommands(cmd *cobra.Command, args []string) error {
 	}
 	global := valueFlagNames(rootCmd.PersistentFlags(), nil)
 	if globalJSON {
-		return emitRead(cmd, "", rows, int64(len(rows)), 0, len(rows), withExtra("global_value_flags", global))
+		return emitRead(cmd, "", rows, int64(len(rows)), 0, len(rows), withExtra("global_value_flags", global),
+			withExtra("global_reach_flags", publishedGlobalReachFlags()))
 	}
 	for _, r := range rows {
 		var traits []string
@@ -107,9 +141,9 @@ func runSchemaCommands(cmd *cobra.Command, args []string) error {
 				traits = append(traits, t.name)
 			}
 		}
-		fmt.Printf("%-28s %-12s db:%-6s %s\n", terminal.Cyan(r.Command), r.Kind, r.DB, strings.Join(traits, ","))
+		fmt.Printf("%-28s %-12s db:%-6s reach:%-9s %s\n", terminal.Cyan(r.Command), r.Kind, r.DB, r.Reach, strings.Join(traits, ","))
 	}
-	fmt.Fprintf(os.Stderr, "\n%s %d commands; -j adds value_flags and global_value_flags\n", terminal.InfoSymbol(), len(rows))
+	fmt.Fprintf(os.Stderr, "\n%s %d commands; -j adds value_flags, aliases, targets and reach_flags\n", terminal.InfoSymbol(), len(rows))
 	return nil
 }
 
@@ -140,6 +174,7 @@ func traitView(path string, t commandTrait, c *cobra.Command, rootFlags *pflag.F
 	flags := append(local, inherited...)
 	sort.Strings(flags)
 	flags = slices.Compact(flags)
+	reach, targets, reachFlags, note := reachOf(path, c)
 	return commandTraitView{
 		Command:      path,
 		Kind:         string(t.Kind),
@@ -150,7 +185,33 @@ func traitView(path string, t commandTrait, c *cobra.Command, rootFlags *pflag.F
 		SendsTraffic: t.SendsTraffic,
 		ReadOnlyFlag: t.ReadOnly,
 		ValueFlags:   flags,
+		Aliases:      commandAliases(c),
+		Targets:      targets,
+		Reach:        reach,
+		ReachFlags:   reachFlags,
+		ReachNote:    note,
+		Pipeline:     pipelineOf(c),
+		TranslatesTo: translatesTo(path),
 	}
+}
+
+// publishedGlobalReachFlags is globalReachFlags as published, dashed.
+func publishedGlobalReachFlags() []reachFlag {
+	out := make([]reachFlag, 0, len(globalReachFlags))
+	// cobra adds --help (-h) to each command's own flag set on first use.
+	rootCmd.InitDefaultHelpFlag()
+	for _, f := range globalReachFlags {
+		pf := rootCmd.PersistentFlags().Lookup(f.Flag)
+		if pf == nil {
+			pf = rootCmd.Flags().Lookup(f.Flag)
+		}
+		if pf != nil && pf.Shorthand != "" {
+			f.Short = "-" + pf.Shorthand
+		}
+		f.Flag = "--" + f.Flag
+		out = append(out, f)
+	}
+	return out
 }
 
 // valueFlagNames lists the flags in fs that take a value, as "--name" and

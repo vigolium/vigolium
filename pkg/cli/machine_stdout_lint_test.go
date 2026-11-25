@@ -32,6 +32,7 @@ var stdoutStreamWriters = map[string]string{
 	"server_ca.go runServerCAPrint":        "server ca print: the PEM certificate is the output (the -j path is an envelope)",
 	"traffic_extract.go deliverBody":       "traffic body: the body bytes are the output",
 	"traffic_extract.go runTrafficHeaders": "traffic headers: human header block (the -j path is an envelope)",
+	"traffic_request.go runTrafficRequest": "traffic request: the raw stored request is the output (the -j path is an envelope)",
 }
 
 // TestMachineStdoutLint keeps raw JSON off stdout.

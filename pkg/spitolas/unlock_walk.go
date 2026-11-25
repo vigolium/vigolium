@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/browser"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/network"
 	"github.com/vigolium/vigolium/pkg/utils/textutil"
@@ -36,6 +37,18 @@ import (
 //     and a matching request is answered in the browser (Fetch.fulfillRequest)
 //     without reaching the target. A stubbed response is never stored and never
 //     reported as traffic.
+//   - Rewrites are confined the same way. A matching request reaches the target
+//     (through the same method gate as any other); its response is paused at the
+//     Fetch response stage and the page receives it with the rewrite's status
+//     and JSON members changed. A rewritten answer is never evidence: the
+//     exchange is never stored and never listed as a request, only as a rewrite
+//     hit (rewrites_hit), with the upstream status beside the one the page got.
+//   - Clicks are bounded and read-only: on each rendered route the walk clicks
+//     up to the profile's cap of controls the spider's candidate extractor
+//     offers, after the destructive-label guard (delete, logout, approve, …)
+//     dropped the ones a GET could still act on. A click's requests pass the same
+//     gate as a navigation's. The walk refuses to click at all when writes are
+//     allowed, since a click would then commit a real write.
 //   - Writes are recorded, not sent: every request with a method other than
 //     GET, HEAD or OPTIONS is failed in the browser and reported by shape
 //     (method, URL, header names, a clipped body). AllowWrites lets in-scope
@@ -88,6 +101,9 @@ type UnlockRequest struct {
 	// RecordUUID is the stored record holding this exchange, empty when it was
 	// not stored (no response, no sink, or the store refused it).
 	RecordUUID string `json:"record_uuid,omitempty"`
+	// Via is "click" when the request was sent after the walk began clicking
+	// the route's controls; absent for the navigation's own requests.
+	Via string `json:"via,omitempty"`
 }
 
 // UnlockAbortedWrite is the shape of a state-changing request the walk failed
@@ -101,6 +117,8 @@ type UnlockAbortedWrite struct {
 	Body          string `json:"body,omitempty"`
 	BodyBytes     int    `json:"body_bytes,omitempty"`
 	BodyTruncated bool   `json:"body_truncated,omitempty"`
+	// Via is "click" when a click on the route sent the write.
+	Via string `json:"via,omitempty"`
 }
 
 // UnlockStubHit is one request a stub answered.
@@ -112,11 +130,49 @@ type UnlockStubHit struct {
 	URL    string `json:"url"`
 }
 
+// UnlockRewriteHit is one real answer a rewrite matched. The exchange is not
+// evidence: it is never stored and never listed among the route's requests.
+type UnlockRewriteHit struct {
+	// Rewrite is the rewrite's index in the profile.
+	Rewrite int    `json:"rewrite"`
+	Method  string `json:"method"`
+	Path    string `json:"path"`
+	URL     string `json:"url"`
+	// UpstreamStatus is what the target answered; Status what the page got.
+	UpstreamStatus int `json:"upstream_status"`
+	Status         int `json:"status"`
+	// Applied is false when the answer reached the page unchanged; Error says
+	// why (not JSON, a pointer that does not resolve, a body over the limit).
+	Applied bool   `json:"applied"`
+	Error   string `json:"error,omitempty"`
+}
+
+// UnlockClick is one control the walk clicked on a route.
+type UnlockClick struct {
+	// Kind is the trigger the control was chosen as: search, filter, view,
+	// edit, export, list or other.
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+	// Requests counts the real requests and aborted writes the click caused.
+	Requests int `json:"requests"`
+	// LeftRoute is the URL the click took the page to when it left the route;
+	// the walk navigated back before the next click.
+	LeftRoute string `json:"left_route,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 // UnlockStubRef names a stub by index, method and path.
 type UnlockStubRef struct {
 	Stub   int    `json:"stub"`
 	Method string `json:"method"`
 	Path   string `json:"path"`
+}
+
+// UnlockRewriteRef names a rewrite by index, method and path.
+type UnlockRewriteRef struct {
+	Rewrite int    `json:"rewrite"`
+	Method  string `json:"method"`
+	Path    string `json:"path"`
 }
 
 // UnlockRouteResult is what one navigation of the walk observed.
@@ -140,7 +196,13 @@ type UnlockRouteResult struct {
 	Requests      []UnlockRequest      `json:"requests"`
 	AbortedWrites []UnlockAbortedWrite `json:"aborted_writes"`
 	StubsHit      []UnlockStubHit      `json:"stubs_hit"`
-	Error         string               `json:"error,omitempty"`
+	RewritesHit   []UnlockRewriteHit   `json:"rewrites_hit"`
+	// Clicks are the controls clicked on the route, in order.
+	Clicks []UnlockClick `json:"clicks,omitempty"`
+	// ClicksSkippedDestructive counts the route's controls the destructive-
+	// label guard refused to click.
+	ClicksSkippedDestructive int    `json:"clicks_skipped_destructive,omitempty"`
+	Error                    string `json:"error,omitempty"`
 }
 
 // UnlockWalkTotals sums a walk.
@@ -160,6 +222,12 @@ type UnlockWalkTotals struct {
 	// failed and not reported by shape.
 	AbortedOutOfScope int `json:"aborted_out_of_scope"`
 	StubsHit          int `json:"stubs_hit"`
+	// RewritesHit counts real answers a rewrite matched; RewritesApplied the
+	// ones it changed.
+	RewritesHit     int `json:"rewrites_hit"`
+	RewritesApplied int `json:"rewrites_applied"`
+	// Clicks counts the controls clicked across every route.
+	Clicks int `json:"clicks"`
 }
 
 // UnlockWalkResult is the outcome of UnlockWalk.
@@ -168,10 +236,17 @@ type UnlockWalkResult struct {
 	Landing UnlockRouteResult   `json:"landing"`
 	Routes  []UnlockRouteResult `json:"routes"`
 	// RoutesSkipped are the profile's routes past maxRoutes, not visited.
-	RoutesSkipped []string         `json:"routes_skipped,omitempty"`
-	StubsNeverHit []UnlockStubRef  `json:"stubs_never_hit"`
-	WritesAllowed bool             `json:"writes_allowed"`
-	Totals        UnlockWalkTotals `json:"totals"`
+	RoutesSkipped []string        `json:"routes_skipped,omitempty"`
+	StubsNeverHit []UnlockStubRef `json:"stubs_never_hit"`
+	// RewritesNeverHit are the profile's rewrites no request matched.
+	RewritesNeverHit []UnlockRewriteRef `json:"rewrites_never_hit"`
+	// ClicksRefused says why the walk clicked nothing although the profile
+	// allows clicks: "writes_allowed" (a click would commit a real write).
+	ClicksRefused string `json:"clicks_refused,omitempty"`
+	// SkippedControls samples the controls the destructive-label guard refused.
+	SkippedControls []scanevents.SkippedControl `json:"skipped_controls,omitempty"`
+	WritesAllowed   bool                        `json:"writes_allowed"`
+	Totals          UnlockWalkTotals            `json:"totals"`
 }
 
 // unlockAbortedBodyCap clips an aborted write's body in the report.
@@ -203,9 +278,21 @@ const unlockSeedScript = `(function (raw) {
 })(%s);`
 
 // unlockTabGuardScript keeps the app in the walk's tab: a popup is a new
-// target the tab's interceptor does not see, so window.open opens nothing.
+// target the tab's interceptor does not see, so window.open opens nothing and
+// a link or form that names another browsing context (target=_blank) loses
+// its target before the click or submit takes effect, so it loads here.
 const unlockTabGuardScript = `(function () {
   try { window.open = function () { return null; }; } catch (e) {}
+  try {
+    document.addEventListener('click', function (e) {
+      var a = e.target && e.target.closest ? e.target.closest('a[target],area[target]') : null;
+      if (a) a.removeAttribute('target');
+    }, true);
+    document.addEventListener('submit', function (e) {
+      if (e.target && e.target.removeAttribute) e.target.removeAttribute('target');
+      if (e.submitter && e.submitter.removeAttribute) e.submitter.removeAttribute('formtarget');
+    }, true);
+  } catch (e) {}
 })();`
 
 // unlockClientNavScript navigates the app client-side: pushState to the
@@ -266,6 +353,7 @@ type unlockBucket struct {
 	requests []UnlockRequest
 	aborted  []UnlockAbortedWrite
 	stubs    []UnlockStubHit
+	rewrites []UnlockRewriteHit
 }
 
 // storedExchange is what the walk's writer stored for one method and URL.
@@ -285,10 +373,12 @@ type unlockWalk struct {
 	// current is the bucket index requests are attributed to: 0 the landing
 	// load, i+1 the profile's route i.
 	current atomic.Int32
+	// clicking is set while the walk clicks a route's controls; requests
+	// decided meanwhile are marked Via "click".
+	clicking atomic.Bool
 
 	mu                sync.Mutex
 	buckets           []*unlockBucket
-	stubHits          []int
 	stored            map[string]storedExchange
 	storeErrors       int
 	abortedOutOfScope int
@@ -318,31 +408,94 @@ func (w *unlockWalk) decide(e *proto.FetchRequestPaused) browser.InterceptDecisi
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	b := w.buckets[w.current.Load()]
+	via := ""
+	if w.clicking.Load() {
+		via = "click"
+	}
 
 	if i := w.profile.matchStub(w.origin, method, u); i >= 0 {
 		s := w.profile.Stubs[i]
-		w.stubHits[i]++
 		b.stubs = append(b.stubs, UnlockStubHit{Stub: i, Method: s.Method, Path: s.Path, URL: req.URL})
 		return browser.InterceptDecision{Verdict: browser.InterceptFulfill, Status: s.Status, ContentType: s.ContentType, Body: []byte(s.Body)}
 	}
 
+	// A request a rewrite matches is sent (through the method gate below)
+	// but never listed as a request: its answer is the rewrite's, reported
+	// as a rewrite hit at the response stage.
+	rewritten := w.profile.matchRewrite(w.origin, method, u) >= 0
 	inScope := w.inScope(u)
-	if !safeUnlockMethod(method) {
+	if !httpmsg.IsSafeMethod(method) {
 		switch {
 		case inScope && w.cfg.AllowWrites:
-			b.requests = append(b.requests, UnlockRequest{Method: method, URL: req.URL, Type: string(e.ResourceType)})
+			if !rewritten {
+				b.requests = append(b.requests, UnlockRequest{Method: method, URL: req.URL, Type: string(e.ResourceType), Via: via})
+			}
 			return browser.InterceptDecision{Verdict: browser.InterceptContinue}
 		case inScope:
-			b.aborted = append(b.aborted, abortedShape(method, req))
+			a := abortedShape(method, req)
+			a.Via = via
+			b.aborted = append(b.aborted, a)
 		default:
 			w.abortedOutOfScope++
 		}
 		return browser.InterceptDecision{Verdict: browser.InterceptFail}
 	}
-	if inScope && slices.Contains(unlockReportedTypes, e.ResourceType) {
-		b.requests = append(b.requests, UnlockRequest{Method: method, URL: req.URL, Type: string(e.ResourceType)})
+	if inScope && !rewritten && slices.Contains(unlockReportedTypes, e.ResourceType) {
+		b.requests = append(b.requests, UnlockRequest{Method: method, URL: req.URL, Type: string(e.ResourceType), Via: via})
 	}
 	return browser.InterceptDecision{Verdict: browser.InterceptContinue}
+}
+
+// decideResponse is the walk's response-stage interceptor: a response a
+// rewrite matches is changed before the page reads it, and the hit recorded
+// on the current navigation; every other response passes unchanged.
+func (w *unlockWalk) decideResponse(e *proto.FetchRequestPaused) browser.InterceptDecision {
+	pass := browser.InterceptDecision{Verdict: browser.InterceptContinue}
+	if e.Request == nil || e.ResponseStatusCode == nil {
+		return pass
+	}
+	u, err := url.Parse(e.Request.URL)
+	if err != nil {
+		return pass
+	}
+	method := strings.ToUpper(e.Request.Method)
+	i := w.profile.matchRewrite(w.origin, method, u)
+	if i < 0 {
+		return pass
+	}
+	rw := &w.profile.Rewrites[i]
+	upstream := *e.ResponseStatusCode
+
+	w.mu.Lock()
+	b := w.buckets[w.current.Load()]
+	b.rewrites = append(b.rewrites, UnlockRewriteHit{Rewrite: i, Method: rw.Method, Path: rw.Path, URL: e.Request.URL,
+		UpstreamStatus: upstream, Status: upstream})
+	hit := len(b.rewrites) - 1
+	w.mu.Unlock()
+
+	return browser.InterceptDecision{Verdict: browser.InterceptRewrite, Rewrite: func(status int, body []byte) (int, []byte, error) {
+		if body == nil && len(rw.Set) > 0 {
+			err := errors.New("the browser could not read the upstream body")
+			w.recordRewrite(b, hit, 0, err)
+			return 0, nil, err
+		}
+		st, out, err := rw.apply(status, body)
+		w.recordRewrite(b, hit, st, err)
+		return st, out, err
+	}}
+}
+
+// recordRewrite notes a rewrite hit's outcome: the status the page got and
+// whether the rewrite changed the answer.
+func (w *unlockWalk) recordRewrite(b *unlockBucket, hit, status int, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	h := &b.rewrites[hit]
+	if err != nil {
+		h.Error = err.Error()
+		return
+	}
+	h.Applied, h.Status = true, status
 }
 
 // abortedShape is the reported shape of a failed write: header names (never
@@ -380,6 +533,9 @@ func abortedShape(method string, req *proto.NetworkRequest) UnlockAbortedWrite {
 //
 //   - an exchange a stub matches was answered by the stub (the interceptor
 //     answers every such request), so it is never stored;
+//   - an exchange a rewrite matches carries the rewrite's answer (or an
+//     upstream answer the page read beside rewritten ones), so it is never
+//     stored either: a rewritten answer is never evidence;
 //   - a state-changing request without AllowWrites was failed in the browser;
 //   - an exchange with no response (failed, cancelled) has nothing to store;
 //   - an out-of-scope exchange is not the walk's to store.
@@ -392,10 +548,10 @@ func (w *unlockWalk) Write(entry *network.TrafficEntry) error {
 		return nil
 	}
 	method := strings.ToUpper(entry.Request.Method)
-	if w.profile.matchStub(w.origin, method, u) >= 0 {
+	if w.profile.forgedAnswer(w.origin, method, u) {
 		return nil
 	}
-	if !safeUnlockMethod(method) && !w.cfg.AllowWrites {
+	if !httpmsg.IsSafeMethod(method) && !w.cfg.AllowWrites {
 		return nil
 	}
 	rec := storedExchange{status: entry.Response.Status}
@@ -446,13 +602,12 @@ func UnlockWalk(ctx context.Context, cfg UnlockWalkConfig) (*UnlockWalkResult, e
 	}
 
 	w := &unlockWalk{
-		ctx:      ctx,
-		cfg:      cfg,
-		profile:  p,
-		origin:   origin,
-		buckets:  make([]*unlockBucket, len(routes)+1),
-		stubHits: make([]int, len(p.Stubs)),
-		stored:   map[string]storedExchange{},
+		ctx:     ctx,
+		cfg:     cfg,
+		profile: p,
+		origin:  origin,
+		buckets: make([]*unlockBucket, len(routes)+1),
+		stored:  map[string]storedExchange{},
 	}
 	for i := range w.buckets {
 		w.buckets[i] = &unlockBucket{}
@@ -493,6 +648,10 @@ func UnlockWalk(ctx context.Context, cfg UnlockWalkConfig) (*UnlockWalkResult, e
 	}
 
 	res := &UnlockWalkResult{Origin: p.Origin, RoutesSkipped: skipped, WritesAllowed: cfg.AllowWrites}
+	clicker := w.newClicker()
+	if _, reason := w.clickBudget(); reason != "" {
+		res.ClicksRefused = reason
+	}
 
 	root := origin.ResolveReference(&url.URL{Path: "/"})
 	res.Landing = UnlockRouteResult{Route: "/", URL: root.String(), Navigation: "load"}
@@ -510,7 +669,13 @@ func UnlockWalk(ctx context.Context, cfg UnlockWalkConfig) (*UnlockWalkResult, e
 		target, _ := resolveUnlockRoute(origin, route)
 		r := UnlockRouteResult{Route: route, URL: target.String()}
 		text = w.visit(ctx, page, int32(i+1), target, settle, text, &r)
+		if clicker != nil && ctx.Err() == nil {
+			text = clicker.clickRoute(ctx, page, target, settle, text, &r)
+		}
 		res.Routes = append(res.Routes, r)
+	}
+	if clicker != nil {
+		res.SkippedControls = clicker.ext.SkippedControls()
 	}
 
 	// The capture's body workers finish their writes on close, so every
@@ -549,9 +714,11 @@ func (w *unlockWalk) preparePage(page *browser.Page) error {
 		}
 	}
 	ic := &browser.Interceptor{
-		Patterns: []string{w.origin.String() + "/*"},
-		Types:    unlockPausedTypes,
-		Decide:   w.decide,
+		Patterns:         []string{w.origin.String() + "/*"},
+		Types:            unlockPausedTypes,
+		Decide:           w.decide,
+		ResponsePatterns: w.profile.rewriteFetchPatterns(w.origin),
+		DecideResponse:   w.decideResponse,
 	}
 	if err := page.InstallInterceptor(ic); err != nil {
 		return fmt.Errorf("UnlockWalk: install the interceptor: %w", err)
@@ -588,7 +755,15 @@ func (w *unlockWalk) bucketEmpty(idx int32) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	b := w.buckets[idx]
-	return len(b.requests) == 0 && len(b.aborted) == 0 && len(b.stubs) == 0
+	return len(b.requests) == 0 && len(b.aborted) == 0 && len(b.stubs) == 0 && len(b.rewrites) == 0
+}
+
+// bucketSize counts the real requests and aborted writes attributed to idx.
+func (w *unlockWalk) bucketSize(idx int32) int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	b := w.buckets[idx]
+	return len(b.requests) + len(b.aborted)
 }
 
 // observe reads where the page settled; text is what it shows (pageText).
@@ -614,9 +789,17 @@ func (w *unlockWalk) finish(res *UnlockWalkResult) {
 		}
 		r.AbortedWrites = append([]UnlockAbortedWrite{}, b.aborted...)
 		r.StubsHit = append([]UnlockStubHit{}, b.stubs...)
+		r.RewritesHit = append([]UnlockRewriteHit{}, b.rewrites...)
 		res.Totals.RealRequests += len(r.Requests)
 		res.Totals.AbortedWrites += len(r.AbortedWrites)
 		res.Totals.StubsHit += len(r.StubsHit)
+		res.Totals.RewritesHit += len(r.RewritesHit)
+		for _, h := range r.RewritesHit {
+			if h.Applied {
+				res.Totals.RewritesApplied++
+			}
+		}
+		res.Totals.Clicks += len(r.Clicks)
 	}
 	fill(&res.Landing, w.buckets[0])
 	for i := range res.Routes {
@@ -637,11 +820,25 @@ func (w *unlockWalk) finish(res *UnlockWalkResult) {
 	res.Totals.RecordsStored = len(uuids)
 	res.Totals.StoreErrors = w.storeErrors
 	res.Totals.AbortedOutOfScope = w.abortedOutOfScope
+	stubHit, rewriteHit := map[int]bool{}, map[int]bool{}
+	for _, b := range w.buckets {
+		for _, h := range b.stubs {
+			stubHit[h.Stub] = true
+		}
+		for _, h := range b.rewrites {
+			rewriteHit[h.Rewrite] = true
+		}
+	}
 	res.StubsNeverHit = []UnlockStubRef{}
-	for i, n := range w.stubHits {
-		if n == 0 {
-			s := w.profile.Stubs[i]
+	for i, s := range w.profile.Stubs {
+		if !stubHit[i] {
 			res.StubsNeverHit = append(res.StubsNeverHit, UnlockStubRef{Stub: i, Method: s.Method, Path: s.Path})
+		}
+	}
+	res.RewritesNeverHit = []UnlockRewriteRef{}
+	for i, r := range w.profile.Rewrites {
+		if !rewriteHit[i] {
+			res.RewritesNeverHit = append(res.RewritesNeverHit, UnlockRewriteRef{Rewrite: i, Method: r.Method, Path: r.Path})
 		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/public"
@@ -101,10 +102,9 @@ func LoadTemplate(templateID string, templatesDir string) (*agenttypes.PromptTem
 		}
 	}
 
-	// 2. ~/.vigolium/prompts/
-	home, err := os.UserHomeDir()
-	if err == nil {
-		path := filepath.Join(home, ".vigolium", "prompts", filename)
+	// 2. ~/.vigolium/prompts/ (under VIGOLIUM_STATE_DIR when that is set)
+	if userDir := paths.VigoliumPath("prompts"); userDir != "" {
+		path := filepath.Join(userDir, filename)
 		if tmpl, mtime, err := loadAndStatTemplate(path); err == nil {
 			tmpl.Source = "user"
 			putTemplateCacheEntry(cacheKey, tmpl, path, mtime)
@@ -140,20 +140,19 @@ func ResolveTemplatePath(templateID string, templatesDir string) string {
 		}
 	}
 
-	// 2. ~/.vigolium/prompts/ (flat and subdirs)
-	home, err := os.UserHomeDir()
-	if err == nil {
-		baseDir := filepath.Join(home, ".vigolium", "prompts")
+	// 2. ~/.vigolium/prompts/ (flat and subdirs; under VIGOLIUM_STATE_DIR when
+	// that is set)
+	if baseDir := paths.VigoliumPath("prompts"); baseDir != "" {
 		// Check flat
 		path := filepath.Join(baseDir, filename)
 		if _, err := os.Stat(path); err == nil {
-			return "~/.vigolium/prompts/" + filename
+			return terminal.ShortenHome(path)
 		}
 		// Check known subdirectories
 		for _, sub := range embeddedTemplateSubdirs {
 			path := filepath.Join(baseDir, sub, filename)
 			if _, err := os.Stat(path); err == nil {
-				return "~/.vigolium/prompts/" + sub + "/" + filename
+				return terminal.ShortenHome(path)
 			}
 		}
 	}
@@ -265,10 +264,8 @@ func ListTemplates(templatesDir string) ([]agenttypes.PromptTemplate, error) {
 	// 1. Embedded templates (lowest priority, recurse subdirectories)
 	LoadEmbeddedTemplates("presets/prompts", seen)
 
-	// 2. User templates (~/.vigolium/prompts/)
-	home, _ := os.UserHomeDir()
-	if home != "" {
-		userDir := filepath.Join(home, ".vigolium", "prompts")
+	// 2. User templates (~/.vigolium/prompts/, under VIGOLIUM_STATE_DIR when set)
+	if userDir := paths.VigoliumPath("prompts"); userDir != "" {
 		LoadDirTemplates(userDir, "user", seen)
 	}
 

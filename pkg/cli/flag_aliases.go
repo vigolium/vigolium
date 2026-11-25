@@ -38,6 +38,7 @@ var vocabularyAliases = map[string]map[string]string{
 	"db export":       {"record-uuid": "uuid"},
 	"traffic body":    {"record-uuid": "uuid"},
 	"traffic headers": {"record-uuid": "uuid"},
+	"traffic request": {"record-uuid": "uuid"},
 
 	// The body to send is -d/--data (fuzz, kit param-mine).
 	"scan-url": {"data": "body"},

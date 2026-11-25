@@ -381,13 +381,14 @@ var schemaPending = map[string]string{
 	"storage rm": pendingTypedItems, "storage upload": pendingTypedItems,
 	"schema": pendingSelfDescribe, "schema list": pendingSelfDescribe, "schema command": pendingSelfDescribe,
 	"schema event": pendingSelfDescribe, "schema error": pendingSelfDescribe, "schema plan": pendingSelfDescribe,
-	"schema all": pendingSelfDescribe,
-	"strategy":   pendingTypedItems, "update": pendingTypedItems, "version": pendingTypedItems,
+	"schema all": pendingSelfDescribe, "schema proof": pendingSelfDescribe,
+	"strategy": pendingTypedItems, "update": pendingTypedItems, "version": pendingTypedItems,
 }
 
 // schemaPendingCeiling pins the ratchet's size: lower it when a command gets
-// a schema; never raise it.
-const schemaPendingCeiling = 59
+// a schema; never raise it for a command that emits rows. A schema printer
+// (pendingSelfDescribe) prints a JSON Schema itself and is the one exception.
+const schemaPendingCeiling = 60
 
 // TestSchemaCoverageRatchet: every runnable non-interactive command either has
 // a registered schema or a reason in schemaPending, never both.

@@ -480,13 +480,16 @@ func (r *Repository) AdvanceScanCursorBy(ctx context.Context, scanUUID string, r
 	return err
 }
 
-// ResetScanCursor resets the scan cursor to the beginning so all records
-// are re-read on the next iteration (e.g., between seed and audit phases).
+// ResetScanCursor rewinds the scan cursor to where the scan started
+// (start_cursor_at / start_cursor_uuid) so its records are re-read on the next
+// iteration (e.g., between seed and audit phases). A scan with no start cursor
+// rewinds to the beginning: every record; one started at a cursor
+// (`scan --only-new-since`) to that cursor.
 func (r *Repository) ResetScanCursor(ctx context.Context, scanUUID string) error {
 	_, err := r.db.NewUpdate().
 		Model((*Scan)(nil)).
-		Set("cursor_at = ?", time.Time{}).
-		Set("cursor_uuid = ?", "").
+		Set("cursor_at = start_cursor_at").
+		Set("cursor_uuid = COALESCE(start_cursor_uuid, '')").
 		Set("updated_at = CURRENT_TIMESTAMP").
 		Where("uuid = ?", scanUUID).
 		Exec(ctx)

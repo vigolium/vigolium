@@ -53,6 +53,13 @@ type DynamicAssessmentConfig struct {
 	// flag overrides this value in either direction.
 	AllowRiskyPayloads bool `yaml:"allow_risky_payloads,omitempty"`
 
+	// MaxModuleTier is a hard ceiling on the module tiers a scan runs (light,
+	// moderate, heavy, intrusive). Unlike the intensity's tier ceiling it also
+	// binds an explicit -m / --module-tag selection and a config allowlist: it
+	// is a caller's limit, not a default. The --max-module-tier flag can only
+	// lower it; the lower of the two applies.
+	MaxModuleTier string `yaml:"max_module_tier,omitempty"`
+
 	// ParamMining bounds the param-mining phase (hidden-parameter discovery),
 	// which runs before the assessment at --intensity deep or with
 	// --param-mining. See ParamMiningConfig.

@@ -17,12 +17,9 @@ import (
 // or the CLI's write-intent opener (getDBFor(clicommon.IntentWrite)) and delete
 // its entry.
 //
-// The three below were being edited by parallel work when the open-intent
-// change landed (plan unit FND-6) and are left for their owners.
+// agent_input.go's call runs on a handle getDB already made ready.
 var createSchemaAllowed = map[string]int{
 	"pkg/cli/agent_input.go": 1,
-	"pkg/cli/agent_swarm.go": 1,
-	"pkg/cli/ingest.go":      1,
 }
 
 // TestNoNewCreateSchemaCallSites keeps schema DDL inside pkg/database.

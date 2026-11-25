@@ -264,7 +264,7 @@ func (r *Runner) crawlReSpiderHostGroup(ctx context.Context, group []respiderSee
 	base := baseCfg
 	base.TargetURL = group[0].url
 	rw := r.newScanRecordWriter()
-	sess, serr := spitolas.NewSpiderSession(ctx, base, rw)
+	sess, serr := spitolas.NewSpiderSession(ctx, base, spiderSink{rw})
 	if serr != nil {
 		// The browser couldn't launch; a fresh-browser-per-seed attempt would fail
 		// the same way, so skip this host.

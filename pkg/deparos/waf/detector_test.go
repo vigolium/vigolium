@@ -26,10 +26,8 @@ func createTestResponseChain(statusCode int, headers http.Header, body string) *
 func TestNewDetector(t *testing.T) {
 	d := NewDetector()
 	require.NotNil(t, d)
-	// Verify it's the concrete type with rules
-	det, ok := d.(*detector)
-	require.True(t, ok, "NewDetector should return *detector")
-	assert.NotEmpty(t, det.rules)
+	_, ok := d.(detector)
+	require.True(t, ok, "NewDetector should return the Signatures-backed detector")
 }
 
 func TestDetector_NilResponseChain(t *testing.T) {
@@ -80,7 +78,7 @@ func TestDetector_Cloudflare(t *testing.T) {
 		require.NotNil(t, result)
 		assert.True(t, result.IsBlocked)
 		assert.Equal(t, "cloudflare", result.WAFType)
-		assert.Contains(t, result.Indicators, "body: cloudflare block page")
+		assert.Contains(t, result.Indicators, "cloudflare.block.cf-error-details")
 	})
 
 	t.Run("cf-mitigated alone is a block", func(t *testing.T) {
@@ -268,15 +266,25 @@ func TestDetector_Imperva(t *testing.T) {
 func TestDetector_Sucuri(t *testing.T) {
 	detector := NewDetector()
 
-	t.Run("detects by server header", func(t *testing.T) {
+	// Sucuri's Server header rides every response it proxies: alone it
+	// classifies only the edge-authored 429.
+	t.Run("server header alone on a 403 is not a block", func(t *testing.T) {
 		rc := createTestResponseChain(403, http.Header{
+			"Server": []string{"Sucuri/Cloudproxy"},
+		}, `{"error":"not your order"}`)
+		defer rc.Close()
+		assert.Nil(t, detector.Detect(rc))
+	})
+
+	t.Run("server header on a 429 is a block", func(t *testing.T) {
+		rc := createTestResponseChain(429, http.Header{
 			"Server": []string{"Sucuri/Cloudproxy"},
 		}, "")
 		defer rc.Close()
 		result := detector.Detect(rc)
 		require.NotNil(t, result)
-		assert.True(t, result.IsBlocked)
 		assert.Equal(t, "sucuri", result.WAFType)
+		assert.Equal(t, []string{"sucuri.block.edge-status"}, result.Indicators)
 	})
 
 	t.Run("detects by body content", func(t *testing.T) {

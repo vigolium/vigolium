@@ -1062,12 +1062,12 @@ func openReplayJar() (*jar.PersistentJar, int, error) {
 }
 
 // openSessionJar resolves a named session's cookie jar on disk. Shared by
-// `replay --session-id` and `fuzz --session-id` so the VIGOLIUM_HOME fallback
+// `replay --session-id` and `fuzz --session-id` so the state-root lookup
 // and the "couldn't resolve a path" message live in one place.
 func openSessionJar(sessionID string) (*jar.PersistentJar, int, error) {
 	path := jar.PathFor(sessionID)
 	if path == "" {
-		return nil, 0, fmt.Errorf("could not resolve jar path (set VIGOLIUM_HOME or HOME)")
+		return nil, 0, fmt.Errorf("could not resolve jar path (set VIGOLIUM_STATE_DIR or HOME)")
 	}
 	return jar.Open(path)
 }

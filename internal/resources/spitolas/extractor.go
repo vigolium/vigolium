@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/vigolium/vigolium/internal/paths"
+
 	"github.com/ulikunitz/xz"
 )
 
@@ -34,14 +36,14 @@ func GetChromiumPath(cacheDir string) (string, error) {
 
 // GetBrowserPath returns the path to the embedded browser binary for the specified engine.
 // It extracts the browser to a cache directory if not already extracted.
-// If cacheDir is empty, uses ~/.cache/spitolas/
+// If cacheDir is empty, uses ~/.cache/spitolas/ ($VIGOLIUM_STATE_DIR/cache/spitolas/
+// when that is set).
 func GetBrowserPath(engine BrowserEngine, cacheDir string) (string, error) {
 	if cacheDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home dir: %w", err)
+		cacheDir = paths.UserCacheDir("spitolas")
+		if cacheDir == "" {
+			return "", fmt.Errorf("failed to resolve the cache directory: no home directory and no %s", paths.StateDirEnv)
 		}
-		cacheDir = filepath.Join(home, ".cache", "spitolas")
 	}
 
 	var version, binaryPath string

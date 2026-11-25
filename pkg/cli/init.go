@@ -29,6 +29,15 @@ const (
 	initMarkerFileName = "initialized"
 )
 
+// vigoliumStateDir is the directory ~/.vigolium names: VIGOLIUM_STATE_DIR when
+// that is set (paths.VigoliumDir).
+func vigoliumStateDir() (string, error) {
+	if d := paths.VigoliumDir(); d != "" {
+		return d, nil
+	}
+	return "", fmt.Errorf("failed to resolve the state directory: no home directory and %s is unset", paths.StateDirEnv)
+}
+
 // writeInitMarker stamps ~/.vigolium/initialized with the binary version and
 // current timestamp. The marker means "the core native-scan tooling (chromium +
 // nuclei templates) was seen present" — written by ensureCoreDeps, doctor and
@@ -58,12 +67,10 @@ func writeInitMarker(vigoliumDir string) error {
 // The pinned store is created and seeded by whichever path first opens it,
 // exactly as it already is on a warm $HOME.
 func initializeVigolium(createDefaultDB bool) error {
-	homeDir, err := os.UserHomeDir()
+	vigoliumDir, err := vigoliumStateDir()
 	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+		return err
 	}
-
-	vigoliumDir := filepath.Join(homeDir, ".vigolium")
 	settingsPath := filepath.Join(vigoliumDir, settingsFileName)
 
 	// Check if settings file already exists
@@ -356,11 +363,10 @@ func coreDepNoticeQuiet(cmd *cobra.Command) bool {
 // spidering and known-issue-scan phases provision what they need lazily,
 // outside their time budgets, and announce it with scan.setup events.
 func ensureCoreDeps(quiet bool) error {
-	homeDir, err := os.UserHomeDir()
+	vigoliumDir, err := vigoliumStateDir()
 	if err != nil {
 		return nil // Silently fail; downstream command will surface the real issue.
 	}
-	vigoliumDir := filepath.Join(homeDir, ".vigolium")
 	markerPath := filepath.Join(vigoliumDir, initMarkerFileName)
 	if _, err := os.Stat(markerPath); err == nil {
 		return nil
@@ -386,16 +392,16 @@ func ensureCoreDeps(quiet bool) error {
 // nuclei-templates when missing (doctor's `--fix --only nuclei,chrome`) and
 // stamps the marker once both are present. The scan bootstrap does not call it.
 //
-// It fails with not_ready when a dependency is still missing after the
-// install: an init that reported success while both downloads failed sent the
-// operator to a scan that then crawled nothing. Under --offline nothing is
+// It fails with not_ready (exit 1) when any install it ran failed, or when a
+// dependency is still missing afterwards: an init that reported success while
+// a download failed sent the operator to a scan that then crawled nothing, and
+// a driver could only tell from the marker file. Under --offline nothing is
 // downloaded; a missing dependency is reported, not failed on.
 func installCoreDeps() error {
-	homeDir, err := os.UserHomeDir()
+	vigoliumDir, err := vigoliumStateDir()
 	if err != nil {
-		return nil
+		return clicommon.NewCodedError(apicontract.CodeNotReady, err)
 	}
-	vigoliumDir := filepath.Join(homeDir, ".vigolium")
 	if _, err := os.Stat(filepath.Join(vigoliumDir, initMarkerFileName)); err == nil {
 		return nil
 	}
@@ -427,14 +433,21 @@ func installCoreDeps() error {
 	defer cancel()
 	results := runCoreDepFixes(ctx, report, settings, []string{"nuclei", "chrome"})
 
+	var failed []string
 	for _, r := range results {
 		if r.Success {
 			fmt.Fprintf(os.Stderr, "  %s %-30s %s\n", terminal.SuccessSymbol(), terminal.Green(r.Label), terminal.White(r.Message))
 		} else {
 			fmt.Fprintf(os.Stderr, "  %s %-30s %s\n", terminal.Red(terminal.SymbolError), terminal.Red(r.Label), terminal.White(r.Message))
+			failed = append(failed, fmt.Sprintf("%s (%s)", r.Label, r.Message))
 		}
 	}
 
+	if len(failed) > 0 {
+		return clicommon.CodedErrorf(apicontract.CodeNotReady,
+			"dependency install failed: %s; retry with `vigolium doctor --fix --only chrome,nuclei` or pass --offline to skip downloads",
+			strings.Join(failed, "; "))
+	}
 	if st := checkCoreDeps(settings); st.missing() {
 		return clicommon.CodedErrorf(apicontract.CodeNotReady,
 			"%s still missing after install; retry with `vigolium doctor --fix --only chrome,nuclei` or pass --offline to skip downloads",
@@ -498,11 +511,10 @@ func ensureInitMarkerIfDepsPresent(report *diagnostics.Report) {
 		return // a dep is missing — leave the first-run install path armed for the next scan
 	}
 
-	homeDir, err := os.UserHomeDir()
+	vigoliumDir, err := vigoliumStateDir()
 	if err != nil {
 		return
 	}
-	vigoliumDir := filepath.Join(homeDir, ".vigolium")
 	markerPath := filepath.Join(vigoliumDir, initMarkerFileName)
 	if _, err := os.Stat(markerPath); err == nil {
 		return // already stamped; preserve original timestamp
@@ -523,11 +535,10 @@ func ensureInitMarkerIfDepsPresent(report *diagnostics.Report) {
 // silences the one-line notice; kept for compatibility. Best-effort — a failed mkdir/write just means the check may
 // run on a later invocation. Returns true when it actually wrote the marker.
 func skipCoreDepCheck() bool {
-	homeDir, err := os.UserHomeDir()
+	vigoliumDir, err := vigoliumStateDir()
 	if err != nil {
 		return false
 	}
-	vigoliumDir := filepath.Join(homeDir, ".vigolium")
 	markerPath := filepath.Join(vigoliumDir, initMarkerFileName)
 	if _, err := os.Stat(markerPath); err == nil {
 		return false // already stamped; nothing to do
@@ -546,12 +557,12 @@ func skipCoreDepCheck() bool {
 // ensureInitialized checks if Vigolium is initialized and initializes if needed
 // This is called before any command runs that shouldBootstrap admits.
 func ensureInitialized() error {
-	homeDir, err := os.UserHomeDir()
+	vigoliumDir, err := vigoliumStateDir()
 	if err != nil {
 		return nil // Silently fail, command will continue
 	}
 
-	settingsPath := filepath.Join(homeDir, ".vigolium", settingsFileName)
+	settingsPath := filepath.Join(vigoliumDir, settingsFileName)
 
 	// Check if already initialized
 	if _, err := os.Stat(settingsPath); err == nil {

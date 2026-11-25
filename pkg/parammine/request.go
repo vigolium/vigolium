@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"golang.org/x/net/http/httpguts"
 )
 
 // builder places parameter pairs into copies of the base request.
@@ -33,8 +34,12 @@ func ParseLocation(s string) (Location, error) {
 		return LocationForm, nil
 	case LocationJSON:
 		return LocationJSON, nil
+	case LocationHeader, "headers":
+		return LocationHeader, nil
+	case LocationCookie, "cookies":
+		return LocationCookie, nil
 	}
-	return "", fmt.Errorf("unknown parameter location %q (want query, form, json or auto)", s)
+	return "", fmt.Errorf("unknown parameter location %q (want query, form, json, header, cookie or auto)", s)
 }
 
 // DetectLocation picks where to put mined names for a request: the query
@@ -78,6 +83,16 @@ func newBuilder(base *httpmsg.HttpRequestResponse, loc Location) (*builder, erro
 				b.existing[k] = true
 			}
 		}
+	case LocationHeader:
+		// Header names are case-insensitive: compare them lowercased.
+		for _, h := range req.Headers() {
+			b.existing[strings.ToLower(h.Name)] = true
+		}
+	case LocationCookie:
+		// Cookie names are case-sensitive (RFC 6265 §5.3): compared as sent.
+		for _, c := range requestCookies(req) {
+			b.existing[c.name] = true
+		}
 	case LocationJSON:
 		b.jsonBody = map[string]json.RawMessage{}
 		if body := bytes.TrimSpace(req.Body()); len(body) > 0 {
@@ -94,15 +109,111 @@ func newBuilder(base *httpmsg.HttpRequestResponse, loc Location) (*builder, erro
 	return b, nil
 }
 
-// filterExisting drops names the base request already sends.
+// filterExisting drops names the base request already sends and, for the
+// header location, names that are not header tokens or that frame or route the
+// request itself (ValidHeaderName); for the cookie location, names that are not
+// cookie tokens (ValidCookieName).
 func (b *builder) filterExisting(words []string) []string {
 	out := make([]string, 0, len(words))
+	seen := make(map[string]bool, len(words))
 	for _, w := range words {
-		if !b.existing[w] {
+		key := w
+		switch b.loc {
+		case LocationHeader:
+			if !ValidHeaderName(w) {
+				continue
+			}
+			key = strings.ToLower(w)
+		case LocationCookie:
+			if !ValidCookieName(w) {
+				continue
+			}
+		}
+		if !b.existing[key] && !seen[key] {
+			seen[key] = true
 			out = append(out, w)
 		}
 	}
 	return out
+}
+
+// unminableHeaders are the headers a mined value must never replace: they frame
+// the message (Content-Length, Transfer-Encoding), select the host or the
+// connection (Host, Connection, Upgrade, hop-by-hop fields) or carry the
+// session (Cookie). Sending a random value in one breaks the request instead of
+// testing whether the application reads the name. RFC 9110/9112 field names.
+// Cookie names are mined under LocationCookie, inside the Cookie header, never
+// by replacing it.
+var unminableHeaders = map[string]bool{
+	"host": true, "content-length": true, "transfer-encoding": true, "connection": true,
+	"keep-alive": true, "te": true, "trailer": true, "upgrade": true, "expect": true,
+	"proxy-connection": true, "proxy-authorization": true, "cookie": true,
+}
+
+// ValidHeaderName reports whether s can be mined as a request header: an RFC
+// 9110 token (tchar only), bounded, and not one of unminableHeaders.
+func ValidHeaderName(s string) bool {
+	return ValidCookieName(s) && !unminableHeaders[strings.ToLower(s)]
+}
+
+// ValidCookieName reports whether s can be mined as a cookie name: an RFC 6265
+// cookie-name (an RFC 9110 token), bounded. Every built-in parameter name that
+// is a token qualifies.
+func ValidCookieName(s string) bool {
+	return len(s) <= maxNameLen && httpguts.ValidHeaderFieldName(s)
+}
+
+// requestCookie is one name=value pair of a request's Cookie header.
+type requestCookie struct{ name, value string }
+
+// requestCookies reads every Cookie header of req (a client may send several)
+// as its name=value pairs, in order, values untouched.
+func requestCookies(req *httpmsg.HttpRequest) []requestCookie {
+	var out []requestCookie
+	for _, h := range req.Headers() {
+		if !strings.EqualFold(h.Name, "Cookie") {
+			continue
+		}
+		for _, part := range strings.Split(h.Value, ";") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			name, value, _ := strings.Cut(part, "=")
+			out = append(out, requestCookie{strings.TrimSpace(name), value})
+		}
+	}
+	return out
+}
+
+// cookieHeaderLen is the length of the Cookie header req sends today, every
+// Cookie line joined as one.
+func cookieHeaderLen(req *httpmsg.HttpRequest) int {
+	n := 0
+	for _, c := range requestCookies(req) {
+		if n > 0 {
+			n += 2 // "; "
+		}
+		n += len(c.name) + 1 + len(c.value)
+	}
+	return n
+}
+
+// withMergedCookies returns req with one Cookie header carrying every cookie it
+// already sends, in order, then pairs. A session cookie stays exactly as it
+// was; the mined names only ever join it.
+func withMergedCookies(req *httpmsg.HttpRequest, pairs []pair) *httpmsg.HttpRequest {
+	parts := make([]string, 0, len(pairs)+4)
+	for _, c := range requestCookies(req) {
+		parts = append(parts, c.name+"="+c.value)
+	}
+	for _, p := range pairs {
+		parts = append(parts, p.name+"="+p.value)
+	}
+	for i := 0; i < 32 && req.HasHeader("Cookie"); i++ {
+		req = req.WithRemovedHeader("Cookie")
+	}
+	return req.WithAddedHeader("Cookie", strings.Join(parts, "; "))
 }
 
 // build returns a copy of the base request carrying pairs.
@@ -148,6 +259,14 @@ func (b *builder) build(pairs []pair) (*httpmsg.HttpRequestResponse, error) {
 			req = req.WithHeader("Content-Type", "application/json")
 		}
 		req = req.WithBody(body)
+	case LocationHeader:
+		headers := make([][2]string, len(pairs))
+		for i, p := range pairs {
+			headers[i] = [2]string{p.name, p.value}
+		}
+		req = req.WithAddedHeaders(headers)
+	case LocationCookie:
+		req = withMergedCookies(req, pairs)
 	}
 	return httpmsg.NewHttpRequestResponse(req, nil), nil
 }
@@ -170,6 +289,10 @@ func (b *builder) pairCost(name string) int {
 	switch b.loc {
 	case LocationJSON:
 		return len(name) + canaryLen + 6 // "name":"value",
+	case LocationHeader:
+		return len(name) + canaryLen + 4 // Name: value CRLF
+	case LocationCookie:
+		return len(name) + canaryLen + 3 // ; name=value
 	default:
 		return len(url.QueryEscape(name)) + canaryLen + 2 // &name=value
 	}
@@ -180,8 +303,22 @@ func (b *builder) pairCost(name string) int {
 func (b *builder) chunk(names []string, cfg Config) [][]string {
 	req := b.base.Request()
 	limit, used := cfg.MaxBodyBytes, len(req.Body())
-	if b.loc == LocationQuery {
+	maxNames := cfg.MaxNamesPerChunk
+	switch b.loc {
+	case LocationQuery:
 		limit, used = cfg.MaxQueryBytes, len(req.Path())
+	case LocationHeader:
+		limit, used = cfg.MaxHeaderBytes, 0
+		// The baseline adds one header of its own; leave room for it.
+		maxNames = min(maxNames, DefaultMaxHeadersPerChunk-len(req.Headers())-1)
+		if maxNames < 1 {
+			maxNames = 1
+		}
+	case LocationCookie:
+		// The chunk adds at most MaxHeaderBytes, and the whole Cookie header,
+		// the request's own cookies and the baseline's one included, stays
+		// within DefaultMaxCookieHeaderBytes.
+		limit, used = min(cfg.MaxHeaderBytes, DefaultMaxCookieHeaderBytes-cookieHeaderLen(req)-b.pairCost(strings.Repeat("x", canaryLen))), 0
 	}
 	room := limit - used
 	var out [][]string
@@ -192,7 +329,7 @@ func (b *builder) chunk(names []string, cfg Config) [][]string {
 		if c > room {
 			continue
 		}
-		if len(cur) > 0 && (size+c > room || len(cur) >= cfg.MaxNamesPerChunk) {
+		if len(cur) > 0 && (size+c > room || len(cur) >= maxNames) {
 			out = append(out, cur)
 			cur, size = nil, 0
 		}

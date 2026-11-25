@@ -102,8 +102,8 @@ func resolveCLIScanPlan(cmd *cobra.Command, opts *types.Options, settings *confi
 }
 
 // runScanDryRun is `scan --dry-run`: resolve the plan and print it, with no
-// side effect beyond reading an existing database. Exit 1 (no_targets_in_scope)
-// when scope refuses every seeded target, as the real scan would.
+// side effect beyond reading an existing database. A seeded target scope
+// refuses never reaches it: the entry gate (scanEntryScopeGate) refuses first.
 func runScanDryRun(cmd *cobra.Command, settings *config.Settings, strategyName string) error {
 	repo, dbPath, closeDB := openPlanDB(settings)
 	defer closeDB()
@@ -111,14 +111,6 @@ func runScanDryRun(cmd *cobra.Command, settings *config.Settings, strategyName s
 	plan, err := resolveCLIScanPlan(cmd, scanOpts, settings, strategyName, repo, true)
 	if err != nil {
 		return err
-	}
-	if plan.Targets.Seeded > 0 && plan.Targets.Admitted == 0 {
-		if !globalJSON {
-			renderPlan(os.Stdout, plan)
-		}
-		inputModeExplicit := cmd != nil && cmd.Flags().Changed("input-mode")
-		targets, _, _ := scanSeededTargets(scanOpts, inputModeExplicit)
-		return noTargetsInScopeError(runner.AdmitTargets(settings.Scope, targets))
 	}
 	return printDryRunPlan(cmd, plan, dbPath)
 }

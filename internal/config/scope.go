@@ -112,6 +112,23 @@ type ScopeConfig struct {
 	RequestString       ScopeRule `yaml:"request_string" json:"request_string"`
 	ResponseString      ScopeRule `yaml:"response_string" json:"response_string"`
 
+	// CIDR admits and refuses destinations by address: IPv4/IPv6 prefixes
+	// ("10.0.0.0/8") or bare addresses ("192.0.2.7"). An IP-literal host inside
+	// an include prefix is in scope whatever the host rule's include side and
+	// the origin mode say; when the include list is set and the host rule names
+	// no hosts, an IP-literal host must be inside it. Exclude refuses an
+	// IP-literal host, and at send time every address a hostname resolves to.
+	// An include entry is also an explicit scope entry for the private-address
+	// block (ScopeMatcher.RejectAddress). Include does not narrow hostnames: a
+	// name is judged by the host rule, not by where it resolves.
+	CIDR ScopeRule `yaml:"cidr" json:"cidr"`
+
+	// Port admits and refuses destination ports: single ports ("443") or
+	// inclusive ranges ("8000-8100"). A URL without a port is judged on its
+	// scheme's default port. Empty include (or "*") admits every port; exclude
+	// wins over include.
+	Port ScopeRule `yaml:"port" json:"port"`
+
 	// MaxRequestBodySize is the maximum request body size in bytes.
 	// Bodies exceeding this limit are handled according to BodySizeExceededAction.
 	// 0 means unlimited. Default: 1048576 (1 MB).
@@ -160,6 +177,8 @@ func DefaultScopeConfig() *ScopeConfig {
 		ResponseContentType:     ScopeRule{Include: []string{"*"}, Exclude: []string{}},
 		RequestString:           ScopeRule{Include: []string{}, Exclude: []string{}},
 		ResponseString:          ScopeRule{Include: []string{}, Exclude: []string{}},
+		CIDR:                    ScopeRule{Include: []string{}, Exclude: []string{}},
+		Port:                    ScopeRule{Include: []string{}, Exclude: []string{}},
 		MaxRequestBodySize:      1 << 20,         // 1 MB
 		MaxResponseBodySize:     500 * (1 << 20), // 500 MB
 		BodySizeExceededAction:  "truncate",

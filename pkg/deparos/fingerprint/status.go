@@ -35,7 +35,11 @@ func IsThrottledResponse(status int, header http.Header, body []byte) bool {
 	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
 		return true
 	}
-	// ClassifyParts gates on waf.IsBlockStatusCode itself.
-	block := waf.ClassifyParts(status, header, body)
-	return block != nil && block.WAFType != "generic"
+	// A vendor block or challenge row; a refused (generic phrase) row is an
+	// ordinary application answer here.
+	switch waf.ClassifyResponse(status, header, body).Kind() {
+	case waf.KindVendor, waf.KindChallenge:
+		return true
+	}
+	return false
 }

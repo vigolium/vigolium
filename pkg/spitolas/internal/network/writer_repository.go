@@ -138,6 +138,14 @@ type RepositoryWriter struct {
 	// drainer — which is exactly the thing a stalled database has stopped.
 	admitMu   sync.RWMutex
 	closeOnce sync.Once
+
+	// WebSocket frames (websocket.go), buffered under frameMu and saved by the
+	// flush loop beside the records when repo is a FrameSaver.
+	frameMu       sync.Mutex
+	frames        []WebSocketFrame
+	framesClosed  bool
+	framesSaved   int
+	framesDropped int
 }
 
 // NewRepositoryWriter creates a Writer that stores traffic in vigolium's HTTPRecord table.
@@ -295,6 +303,8 @@ func (w *RepositoryWriter) flushLoop() {
 		w.admitMu.Unlock() //nolint:staticcheck // lock/unlock is the barrier, not a guarded section
 
 		deadline := time.Now().Add(writerDrainTimeout)
+		w.closeFrames()
+		defer w.flushFrames(deadline)
 		for time.Now().Before(deadline) {
 			select {
 			case it := <-w.queue:
@@ -322,6 +332,7 @@ func (w *RepositoryWriter) flushLoop() {
 			}
 		case <-ticker.C:
 			flush(time.Now().Add(writerSaveTimeout))
+			w.flushFrames(time.Now().Add(writerSaveTimeout))
 		case <-w.stop:
 			finalDrain()
 			return

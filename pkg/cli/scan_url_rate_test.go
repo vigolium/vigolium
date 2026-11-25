@@ -20,7 +20,7 @@ func TestGlobalFlagsToOptionsCopiesRateLimit(t *testing.T) {
 	globalFlagsToOptions(opts)
 	require.Equal(t, 7, opts.RateLimit)
 
-	stack, err := setupScanHTTPStack(nil)
+	stack, err := setupScanHTTPStack(nil, nil)
 	require.NoError(t, err)
 	defer stack.Close()
 	require.NotNil(t, stack.Services.RateLimiter, "direct scan stack has no rate limiter")

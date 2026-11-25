@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/public"
 	"go.uber.org/zap"
 )
@@ -15,8 +16,8 @@ const browserPromptSectionFile = "autopilot-browser-section.md"
 // Returns empty string when the file is not found (non-fatal).
 func LoadBrowserPromptSection() string {
 	// 1. User override: ~/.vigolium/prompts/autopilot-browser-section.md
-	if home, err := os.UserHomeDir(); err == nil {
-		path := filepath.Join(home, ".vigolium", "prompts", browserPromptSectionFile)
+	if userDir := paths.VigoliumPath("prompts"); userDir != "" {
+		path := filepath.Join(userDir, browserPromptSectionFile)
 		if data, err := os.ReadFile(path); err == nil {
 			zap.L().Debug("loaded browser prompt section from user file", zap.String("path", path))
 			return string(data)

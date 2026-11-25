@@ -50,8 +50,8 @@ const recordUnreferencedSQL = `NOT EXISTS (
 		SELECT 1 FROM analysis_artifacts aa WHERE aa.http_record_uuid = http_records.uuid
 	)`
 
-// deleteRecordsByUUIDsTx deletes the http_records identified by uuids and their
-// finding_records junction rows inside tx, chunking the IN lists so a large set
+// deleteRecordsByUUIDsTx deletes the http_records identified by uuids, their
+// finding_records junction rows and their record_tags inside tx, chunking the IN lists so a large set
 // never exceeds the bound-parameter limit.
 //
 // This is the DESTRUCTIVE variant: it removes a record even when a finding cites
@@ -65,6 +65,11 @@ func deleteRecordsByUUIDsTx(ctx context.Context, tx bun.Tx, uuids []string) erro
 			return fmt.Errorf("failed to delete finding_records: %w", err)
 		}
 		noteDeleted(ctx, "finding_records", res)
+		res, err = tx.NewRaw("DELETE FROM record_tags WHERE record_uuid IN (?)", bun.List(chunk)).Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to delete record_tags: %w", err)
+		}
+		noteDeleted(ctx, "record_tags", res)
 		res, err = tx.NewDelete().Model((*HTTPRecord)(nil)).Where("uuid IN (?)", bun.List(chunk)).Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to delete records: %w", err)

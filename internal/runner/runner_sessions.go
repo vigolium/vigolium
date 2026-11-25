@@ -63,6 +63,12 @@ func (r *Runner) initSessions(ctx context.Context, infra *phaseInfra) error {
 		}
 	}
 
+	// A run that speaks as a session crawls as it: its harvest is an identity,
+	// never clearance another leg may carry (saveBrowserSessionFile).
+	if len(sessions) > 0 {
+		r.identityCarried = true
+	}
+
 	// scanning_strategy.session.{validate_url, reauth_on_status,
 	// reauth_interval} fill the check values each session leaves unset.
 	defaults, err := sessionCfg.SessionDefaults()
@@ -172,6 +178,7 @@ func (r *Runner) initSessions(ctx context.Context, infra *phaseInfra) error {
 	if len(cmpSessions) == 0 {
 		return nil
 	}
+	infra.primarySessionName = mgr.Primary().Name
 
 	for _, cs := range cmpSessions {
 		// Clone options, merge the operator's own headers with THIS session's auth

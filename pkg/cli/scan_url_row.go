@@ -308,6 +308,7 @@ func (s *directScanSession) begin(ctx context.Context, repo *database.Repository
 		}
 		row := database.NewSingleRequestScan(scanUUID, projectUUID, s.name, rowTarget, s.modules, "cli")
 		row.Threads = globalConcurrency
+		row.Tags = callerTags
 		if err := repo.CreateScan(rowCtx, row); err != nil {
 			zap.L().Warn("Failed to create scan record", zap.String("scan_uuid", scanUUID), zap.Error(err))
 			if !globalSilent {

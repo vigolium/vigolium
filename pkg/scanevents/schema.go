@@ -18,7 +18,7 @@ var eventFields = map[string]contract.EventFields{
 		Description: "First line of every stream: what the scan will run, against what, at what pace and budget.",
 		Required:    []string{"pace", "budgets"},
 		Optional: []string{"target", "targets", "strategy", "phases", "db_path", "project_uuid", "phase_pace",
-			"egress", "request_cap_enforcement", "targets_admitted", "targets_rejected"},
+			"egress", "request_cap_enforcement", "targets_admitted", "targets_rejected", "pace_ignored", "caller_tags"},
 	},
 	TypeScanInterrupting: {
 		Description: "A shutdown signal arrived and the graceful stop began. Nonterminal: scan.finished still follows.",
@@ -30,7 +30,7 @@ var eventFields = map[string]contract.EventFields{
 		Optional: []string{"duration_ms", "message", "stop_reason", "reasons", "limits",
 			"requests_sent", "findings", "records_written", "records_basis", "findings_by_severity",
 			"targets_admitted", "targets_rejected", "targets_reached", "targets_unreachable",
-			"budget_exhausted_hosts", "exports", "module_errors", "extensions_failed", "findings_capped", "caveats", "flushed",
+			"budget_exhausted_hosts", "exports", "module_errors", "module_stats", "extensions_failed", "findings_capped", "caveats", "flushed",
 			"scope_dropped", "skipped_controls", "oast_sessions_kept", "exit_code", "error_code"},
 	},
 	TypePhaseStarted: {
@@ -43,15 +43,15 @@ var eventFields = map[string]contract.EventFields{
 		Optional:    []string{"requests_sent", "requests_in_scope", "findings", "done", "total", "unit"},
 	},
 	TypePhaseFinished: {
-		Description: "A phase ended. status: completed, curtailed or failed; reasons are defects, limits configured bounds reached.",
+		Description: "A phase ended. status: completed (it did work), curtailed, failed or skipped (it did none; reasons say why, e.g. no_modules or no_inputs); reasons are defects, limits configured bounds reached.",
 		Required:    []string{"phase", "status"},
 		Optional: []string{"duration_ms", "requests_sent", "requests_in_scope", "findings", "reasons", "limits",
 			"message", "done", "total", "unit", "findings_capped"},
 	},
 	TypeWAFBlock: {
-		Description: "The edge started filtering scan traffic for a host.",
+		Description: "A host's traffic was first blocked or challenged, once per host whichever sender (transport requester|discovery|spider) met it. block_kind vendor|challenge names the edge in vendor; refused (the generic phrase rule alone) carries no vendor.",
 		Required:    []string{"host"},
-		Optional:    []string{"vendor", "status_code", "detail"},
+		Optional:    []string{"vendor", "block_kind", "transport", "status_code", "detail"},
 	},
 	TypeWAFPacing: {
 		Description: "Proactive pacing armed for a host behind a CDN/WAF edge.",

@@ -240,7 +240,9 @@ func runScorecardScan(t *testing.T, targets []string, headers []string) []*datab
 	r.SetRepository(repo)
 	t.Cleanup(func() { r.Close() })
 
-	require.NoError(t, r.RunNativeScan(), "scorecard scan should complete without error")
+	err = r.RunNativeScan()
+	skipIfTargetDied(t, err, targets[0])
+	require.NoError(t, err, "scorecard scan should complete without error")
 	return scorecardFindings(t, db)
 }
 

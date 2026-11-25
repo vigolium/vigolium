@@ -114,6 +114,7 @@ func resolveCleanSelection(projectUUID string) (*cleanSelection, error) {
 		{"--status", len(cleanStatus) > 0},
 		{"--severity", cleanSeverity != ""},
 		{"--search", dbSearch != ""},
+		{"--tag", len(cleanTags) > 0},
 	} {
 		if sel.set {
 			supplied = append(supplied, sel.flag)
@@ -196,6 +197,17 @@ func resolveScopedSelection(mode cleanMode, projectUUID string, supplied []strin
 
 	severities := clicommon.SplitCSV(cleanSeverity)
 
+	// A tag labels records; the findings modes select findings, which carry
+	// none. Accepting it there would delete findings the tag never named.
+	tags, err := parseTagFilterFlag(cleanTags)
+	if err != nil {
+		return nil, err
+	}
+	if len(tags) > 0 && mode == cleanModeFindings {
+		return nil, usageErrorf("--tag selects records and cannot narrow a findings delete (--findings-only or --severity alone); " +
+			"drop --tag, or drop the findings selector to delete the tagged records with the findings only they evidence")
+	}
+
 	return &cleanSelection{
 		Mode: mode,
 		Filters: database.QueryFilters{
@@ -206,6 +218,7 @@ func resolveScopedSelection(mode cleanMode, projectUUID string, supplied []strin
 			DateTo:      dateTo,
 			Severity:    severities,
 			SearchTerm:  dbSearch,
+			Tags:        tags,
 		},
 	}, nil
 }

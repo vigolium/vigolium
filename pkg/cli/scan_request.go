@@ -163,6 +163,9 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if err := admission.refuse(); err != nil {
+		return err
+	}
 
 	// One cancellation context for the invocation — scan-request scans exactly one
 	// request, but the handler lives in the direct path shared with scan-url, and
@@ -186,6 +189,9 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 		rr, target = resolved, resolved.Target()
 		inputs = []scanInput{{rr: rr, target: target, method: method}}
 		if admission, err = admitDirectInputs(cfg, inputs); err != nil {
+			return err
+		}
+		if err := admission.refuse(); err != nil {
 			return err
 		}
 	}

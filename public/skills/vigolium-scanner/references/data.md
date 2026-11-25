@@ -464,7 +464,7 @@ vigolium db stats --watch 10s
 
 **Usage:** `vigolium db migrate [-j]`
 
-Upgrade the store to this vigolium's schema and report the steps applied. Read commands open a query-only pool and never take the write lock; when one meets a store written by an older vigolium it migrates it first through a short-lived writer while `database.auto_migrate_on_read: true` (the default for this release). With that set to `false` the read fails with `error.code: "schema_outdated"` and points here.
+Upgrade the store to this vigolium's schema and report the steps applied. No other command migrates: a read or a write that meets a store written by an older vigolium fails with `error.code: "schema_outdated"` naming `vigolium db migrate --db <path>`, so the migration runs when you choose and never inside a scan's deadline. `VIGOLIUM_AUTO_MIGRATE=1` (or `database.auto_migrate_on_read: true`) lets opens migrate instead.
 
 A store a newer vigolium already migrated is refused with `error.code: "schema_too_new"` (reads still work when its `min_reader_version` allows; writes do not). `-j` emits a mutation document: `changed`, `action` (`migrate` or `noop`), and `items[0]` = `{from_version, to_version, min_reader_version, written_by, applied[], already_current}`. A `--db` path that does not exist is `source_missing`, never a new empty store.
 

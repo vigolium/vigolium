@@ -91,7 +91,7 @@ func TestAdmitTargetsMatchesExecutorPreSendCheck(t *testing.T) {
 		admitted[a] = true
 	}
 	for _, target := range targets {
-		host, path, ok := admissionHostPath(target)
+		host, _, path, ok := admissionHostPath(target)
 		if !ok {
 			t.Fatalf("admissionHostPath(%q) failed", target)
 		}

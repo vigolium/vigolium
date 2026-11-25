@@ -41,6 +41,28 @@
             }
           ]
         },
+        "rewrites_never_hit": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/spitolas.UnlockRewriteRef"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "clicks_refused": {
+          "type": "string"
+        },
+        "skipped_controls": {
+          "items": {
+            "$ref": "#/$defs/scanevents.SkippedControl"
+          },
+          "type": "array"
+        },
         "writes_allowed": {
           "type": "boolean"
         },
@@ -61,6 +83,7 @@
         "landing",
         "routes",
         "stubs_never_hit",
+        "rewrites_never_hit",
         "writes_allowed",
         "totals",
         "stored"
@@ -104,6 +127,7 @@
             "not_ready",
             "out_of_scope",
             "output_too_large",
+            "pace_unsupported",
             "partial",
             "payload_too_large",
             "pdf_failed",
@@ -115,6 +139,7 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "refused_by_policy",
             "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
@@ -267,6 +292,31 @@
         "bytes"
       ]
     },
+    "scanevents.SkippedControl": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "match": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "label",
+        "reason"
+      ]
+    },
     "spitolas.UnlockAbortedWrite": {
       "properties": {
         "method": {
@@ -292,6 +342,9 @@
         },
         "body_truncated": {
           "type": "boolean"
+        },
+        "via": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -299,6 +352,32 @@
       "required": [
         "method",
         "url"
+      ]
+    },
+    "spitolas.UnlockClick": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "requests": {
+          "type": "integer"
+        },
+        "left_route": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "label",
+        "requests"
       ]
     },
     "spitolas.UnlockRequest": {
@@ -317,6 +396,9 @@
         },
         "record_uuid": {
           "type": "string"
+        },
+        "via": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -324,6 +406,65 @@
       "required": [
         "method",
         "url"
+      ]
+    },
+    "spitolas.UnlockRewriteHit": {
+      "properties": {
+        "rewrite": {
+          "type": "integer"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "upstream_status": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "integer"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "rewrite",
+        "method",
+        "path",
+        "url",
+        "upstream_status",
+        "status",
+        "applied"
+      ]
+    },
+    "spitolas.UnlockRewriteRef": {
+      "properties": {
+        "rewrite": {
+          "type": "integer"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "rewrite",
+        "method",
+        "path"
       ]
     },
     "spitolas.UnlockRouteResult": {
@@ -388,6 +529,28 @@
             }
           ]
         },
+        "rewrites_hit": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/spitolas.UnlockRewriteHit"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "clicks": {
+          "items": {
+            "$ref": "#/$defs/spitolas.UnlockClick"
+          },
+          "type": "array"
+        },
+        "clicks_skipped_destructive": {
+          "type": "integer"
+        },
         "error": {
           "type": "string"
         }
@@ -402,7 +565,8 @@
         "redirected",
         "requests",
         "aborted_writes",
-        "stubs_hit"
+        "stubs_hit",
+        "rewrites_hit"
       ]
     },
     "spitolas.UnlockStubHit": {
@@ -477,6 +641,15 @@
         },
         "stubs_hit": {
           "type": "integer"
+        },
+        "rewrites_hit": {
+          "type": "integer"
+        },
+        "rewrites_applied": {
+          "type": "integer"
+        },
+        "clicks": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,
@@ -489,7 +662,10 @@
         "records_stored",
         "aborted_writes",
         "aborted_out_of_scope",
-        "stubs_hit"
+        "stubs_hit",
+        "rewrites_hit",
+        "rewrites_applied",
+        "clicks"
       ]
     }
   },

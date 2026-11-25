@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -45,6 +46,12 @@ func explicitScanPace(cmd *cobra.Command) runner.ExplicitPace {
 // writes files or touches the network beyond reading a named profile.
 func resolveNativeScanOptions(cmd *cobra.Command, settings *config.Settings, opts *types.Options) (string, error) {
 	explicit := explicitScanPace(cmd)
+	if err := runner.ValidateMaxModuleTier(opts.MaxModuleTier); err != nil {
+		return "", asUsageError(err)
+	}
+	if err := runner.ValidateMaxModuleTier(settings.DynamicAssessment.MaxModuleTier); err != nil {
+		return "", asUsageError(fmt.Errorf("dynamic-assessment.max_module_tier: %w", err))
+	}
 
 	profileReq := runner.ProfileRequest{Profile: globalScanningProfile}
 	if cmd.Flags().Changed("intensity") {
@@ -137,6 +144,9 @@ func validateLightweightScanTuning() error {
 	}
 	if globalScanningMaxDuration < 0 {
 		return usageErrorf("--scanning-max-duration must not be negative, got %s", globalScanningMaxDuration)
+	}
+	if err := runner.ValidateMaxModuleTier(scanOpts.MaxModuleTier); err != nil {
+		return asUsageError(err)
 	}
 	return nil
 }

@@ -464,6 +464,17 @@ func (r *HttpRequest) WithAddedHeader(name, value string) *HttpRequest {
 	}
 }
 
+// WithAddedHeaders returns a new HttpRequest with every header in pairs
+// added in order, in one copy of the raw request. Does not check for
+// duplicates.
+func (r *HttpRequest) WithAddedHeaders(pairs [][2]string) *HttpRequest {
+	newRaw, _ := AddHeaders(r.raw, pairs)
+	return &HttpRequest{
+		raw:     newRaw,
+		service: r.service,
+	}
+}
+
 // WithRemovedHeader returns a new HttpRequest with the header removed.
 func (r *HttpRequest) WithRemovedHeader(name string) *HttpRequest {
 	newRaw, _ := RemoveHeader(r.raw, name)

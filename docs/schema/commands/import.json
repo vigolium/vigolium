@@ -58,6 +58,7 @@
             "not_ready",
             "out_of_scope",
             "output_too_large",
+            "pace_unsupported",
             "partial",
             "payload_too_large",
             "pdf_failed",
@@ -69,6 +70,7 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "refused_by_policy",
             "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
@@ -420,6 +422,27 @@
       "type": "integer"
     },
     "oast_merged": {
+      "type": "integer"
+    },
+    "records_skipped_present": {
+      "type": "integer"
+    },
+    "tags": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "records_tagged": {
+      "type": "integer"
+    },
+    "redaction": {
+      "type": "string"
+    },
+    "records_redacted": {
+      "type": "integer"
+    },
+    "findings_redacted": {
       "type": "integer"
     },
     "sources": {

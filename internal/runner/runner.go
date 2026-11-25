@@ -60,7 +60,12 @@ type Runner struct {
 	// Options.CarryBrowserSession is on) and consumed by Discovery
 	// (buildDeparosConfig) and the shared scan requester so later phases inherit
 	// the cleared session. Nil when spidering did not run or carrying is disabled.
-	browserSessions   map[string]httpmsg.CarriedSession
+	browserSessions map[string]httpmsg.CarriedSession
+	// identityCarried is set when this run authenticates as a named session
+	// (auth files, inline sessions, sessions loaded from the DB): its crawl's
+	// harvest then holds that identity's cookies, so it is never written back to
+	// --browser-session-file (saveBrowserSessionFile).
+	identityCarried   bool
 	autoFuzzDiscovery bool // set by runDiscoveryPhase when low-yield/SSO auto-enables FUZZ fuzzing
 	// secretCoverage records the records dynamic assessment's secret_detect
 	// pass analysed, so the known-issue secret batch scans only the rest.
@@ -193,6 +198,9 @@ type phaseInfra struct {
 
 	// Multi-session support for IDOR/BOLA testing
 	compareSessions []compareSession
+	// primarySessionName is the primary auth session's name when compare
+	// sessions are configured, recorded on cross-session findings.
+	primarySessionName string
 
 	// assessmentHeaders carries the primary session's credential headers for the
 	// phases that assess (dynamic-assessment, known-issue-scan) WITHOUT putting

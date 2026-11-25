@@ -10,6 +10,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/shared/xssbreakout"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/spitolas"
@@ -62,14 +63,15 @@ func acquireProbe(ctx context.Context) (release func(), ok bool) {
 
 // confirmOutcome records how strongly a reflected-XSS candidate was confirmed.
 type confirmOutcome struct {
-	httpBreakout     bool   // executable payload's breakout signature survived unescaped
-	browserConfirmed bool   // a JS dialog carrying our marker actually fired
-	browserRan       bool   // a browser navigation was attempted
-	marker           string // unique alert marker
-	dialogMessage    string // captured dialog text on a confirm
-	request          string // raw fuzzed request that carried the executable payload
-	signature        string // the breakout signature matched in the body
-	bodySnippet      string // window of the response body around the surviving signature
+	httpBreakout     bool                // executable payload's breakout signature survived unescaped
+	browserConfirmed bool                // a JS dialog carrying our marker actually fired
+	browserRan       bool                // a browser navigation was attempted
+	marker           string              // unique alert marker
+	dialogMessage    string              // captured dialog text on a confirm
+	request          string              // raw fuzzed request that carried the executable payload
+	signature        string              // the breakout signature matched in the body
+	bodySnippet      string              // window of the response body around the surviving signature
+	proof            *output.ProofRecipe // the surviving breakout as a recipe; nil when it cannot be one
 
 	fuzzedReq *httpmsg.HttpRequestResponse // parsed request, reused for browser confirm
 }
@@ -361,9 +363,39 @@ func sendExec(
 		out.httpBreakout = true
 		out.signature = sig
 		out.bodySnippet = snippetAround(body, sig)
+		out.proof = xssProofRecipe(ctx, ip, cand, string(prefix.Bytes)+cand.payload, sig, marker, encode)
 		break
 	}
 	return out
+}
+
+// xssProofRecipe states a surviving breakout as a body_contains recipe: the
+// executable payload with the caller's marker in alert(), the bare marker as
+// the control (reflected, no breakout), and the matched signature, marker
+// included, as the literal the attack body must carry and the control's must
+// not. A JS-string candidate (quote set) has none: its signature only counts
+// when the breakout quote is not backslash-escaped (signatureSurvived), which
+// a literal match cannot express — an escaped echo contains the same bytes.
+func xssProofRecipe(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	cand execCandidate,
+	payload, sig, marker string,
+	encode func(string) string,
+) *output.ProofRecipe {
+	if cand.quote != 0 || !strings.Contains(sig, marker) {
+		return nil
+	}
+	wrap := func(s string) string {
+		if encode != nil {
+			return encode(s)
+		}
+		return s
+	}
+	return modkit.BuildProofRecipe(ctx, ip,
+		func(m string) string { return wrap(strings.ReplaceAll(payload, marker, m)) },
+		func(m string) string { return wrap(m) },
+		output.ProofOracle{Kind: output.ProofBodyContains, Value: strings.ReplaceAll(sig, marker, output.MarkerPlaceholder)})
 }
 
 // signatureSurvived reports whether sig appears in body as a genuine breakout. For
@@ -462,6 +494,7 @@ func gradeConfirmedEvent(base *output.ResultEvent, outcome confirmOutcome) *outp
 	}
 
 	base.Request = outcome.request
+	base.Proof = outcome.proof
 
 	evidenceLabel := "reflection-only payload"
 	if outcome.browserConfirmed {

@@ -33,13 +33,21 @@ package httpmsg
 //	modified, _ := AddHeader(request, "Host", "example.com")
 //	// Returns: "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
 func AddHeader(message []byte, name, value string) ([]byte, error) {
+	return AddHeaders(message, [][2]string{{name, value}})
+}
+
+// AddHeaders appends every header in pairs, in order, after the existing
+// headers in one copy of message (AddHeader once per pair copies it per pair).
+func AddHeaders(message []byte, pairs [][2]string) ([]byte, error) {
 	if message == nil {
 		return nil, nil
 	}
 
-	// Build header line "Name: Value"
-	headerLine := buildHeaderLine(name, value)
-	headerBytes := []byte(headerLine)
+	var headerBytes []byte
+	for _, p := range pairs {
+		headerBytes = append(headerBytes, buildHeaderLine(p[0], p[1])...)
+		headerBytes = append(headerBytes, CR, LF)
+	}
 
 	// Find header end position
 	// This is the position BEFORE the final CRLF of the separator
@@ -50,17 +58,14 @@ func AddHeader(message []byte, name, value string) ([]byte, error) {
 	}
 
 	// Calculate new message size
-	newSize := headerEndPos + len(headerBytes) + 2 + (len(message) - headerEndPos)
+	newSize := headerEndPos + len(headerBytes) + (len(message) - headerEndPos)
 	result := make([]byte, 0, newSize)
 
 	// Write message up to header end
 	result = append(result, message[:headerEndPos]...)
 
-	// Write new header
+	// Write new header lines, each CRLF-terminated
 	result = append(result, headerBytes...)
-
-	// Write CRLF
-	result = append(result, CR, LF)
 
 	// Write rest of message from header end
 	result = append(result, message[headerEndPos:]...)

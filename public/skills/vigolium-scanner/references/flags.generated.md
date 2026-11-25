@@ -56,6 +56,7 @@ run `vigolium <command> -h`.
 - [vigolium dns](#vigolium-dns)
 - [vigolium doctor](#vigolium-doctor)
 - [vigolium endpoints](#vigolium-endpoints)
+- [vigolium explain-argv](#vigolium-explain-argv)
 - [vigolium export](#vigolium-export)
 - [vigolium extensions](#vigolium-extensions)
 - [vigolium extensions docs](#vigolium-extensions-docs)
@@ -87,6 +88,7 @@ run `vigolium <command> -h`.
 - [vigolium kit cookies](#vigolium-kit-cookies)
 - [vigolium kit cookies doctor](#vigolium-kit-cookies-doctor)
 - [vigolium kit cookies profiles](#vigolium-kit-cookies-profiles)
+- [vigolium kit h2-probe](#vigolium-kit-h2-probe)
 - [vigolium kit harvest](#vigolium-kit-harvest)
 - [vigolium kit js-beautify](#vigolium-kit-js-beautify)
 - [vigolium kit jwt-crack](#vigolium-kit-jwt-crack)
@@ -125,6 +127,7 @@ run `vigolium <command> -h`.
 - [vigolium replay](#vigolium-replay)
 - [vigolium run](#vigolium-run)
 - [vigolium scan](#vigolium-scan)
+- [vigolium scan coverage](#vigolium-scan-coverage)
 - [vigolium scan diff](#vigolium-scan-diff)
 - [vigolium scan ls](#vigolium-scan-ls)
 - [vigolium scan status](#vigolium-scan-status)
@@ -134,13 +137,16 @@ run `vigolium <command> -h`.
 - [vigolium scan-url](#vigolium-scan-url)
 - [vigolium schema](#vigolium-schema)
 - [vigolium schema all](#vigolium-schema-all)
+- [vigolium schema block-signatures](#vigolium-schema-block-signatures)
 - [vigolium schema command](#vigolium-schema-command)
 - [vigolium schema commands](#vigolium-schema-commands)
 - [vigolium schema error](#vigolium-schema-error)
 - [vigolium schema event](#vigolium-schema-event)
 - [vigolium schema flags](#vigolium-schema-flags)
 - [vigolium schema list](#vigolium-schema-list)
+- [vigolium schema pace](#vigolium-schema-pace)
 - [vigolium schema plan](#vigolium-schema-plan)
+- [vigolium schema proof](#vigolium-schema-proof)
 - [vigolium schema storage](#vigolium-schema-storage)
 - [vigolium scope](#vigolium-scope)
 - [vigolium scope add](#vigolium-scope-add)
@@ -173,6 +179,7 @@ run `vigolium <command> -h`.
 - [vigolium traffic](#vigolium-traffic)
 - [vigolium traffic body](#vigolium-traffic-body)
 - [vigolium traffic headers](#vigolium-traffic-headers)
+- [vigolium traffic request](#vigolium-traffic-request)
 - [vigolium update](#vigolium-update)
 - [vigolium version](#vigolium-version)
 
@@ -188,6 +195,7 @@ and wins for that command — read it instead of the row here.
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--caller-tag` | - | stringArray | - | Label this invocation key=value (repeatable): stored on the scan row it writes (scans.tags), on every record it stores (via that row's scan_uuid) and on scan.started (caller_tags). Also $VIGOLIUM_CALLER_TAG=k=v,k2=v2; a flag wins for the same key |
 | `--color` | - | string | `auto` | Color ANSI output: auto (only when stdout and stderr are both terminals), always, or never. --no-color is never; NO_COLOR, FORCE_COLOR and CLICOLOR_FORCE are honored under auto. -j, --events and --ci-output-format force never |
 | `--config` | - | string | - | Path to config file (default "~/.vigolium/vigolium-configs.yaml") |
 | `--db` | - | string | - | Path to SQLite database file (default "~/.vigolium/database-vgnm.sqlite"). Also honors $VIGOLIUM_DB_PATH, which additionally reads that file with project scoping off |
@@ -213,7 +221,10 @@ and wins for that command — read it instead of the row here.
 | `--proxy` | - | string | - | Route all requests through this proxy (HTTP/SOCKS5 URL) |
 | `--read-only` | - | bool | `false` | Open the database without modifying it (no directory creation, no journal-mode change, no WAL checkpoint). Read commands only; use it when the source file is evidence |
 | `--redact` | - | bool | `false` | With -j: mask credential header values, cookie values and sensitive query parameters in raw request/response views (on by default when a coding-agent variable such as CLAUDECODE is set, or with VIGOLIUM_REDACT=1; exports and the database stay raw) |
+| `--request-transform` | - | string | - | Apply a declared request transform (JSON: one transform or an array) to every matching request's final bytes: hmac-header, set-header, set-query, nonce, timestamp, hash, truncate, encrypt-body. It never changes scheme, host or port |
+| `--request-transform-keys` | - | string | - | JSON object (mode 0600) of credential name to key value for --request-transform; VIGOLIUM_TRANSFORM_KEY_<NAME> wins over it |
 | `--scan-uuid` | - | string | - | Pin scan UUID for this session (use to sync results across nodes; defaults to a freshly-minted UUID) |
+| `--set` | - | stringArray | - | Overlay one config key for this invocation, repeatable: --set spidering.max_depth=3 (same keys and value syntax as config set; the file is not changed) |
 | `--silent` | - | bool | `false` | Suppress all output except findings |
 | `--skip-dependency-check` | - | bool | `false` | Skip the first-run dependency check and stamp ~/.vigolium/initialized (the check only prints a notice; chromium and nuclei templates are fetched by the phase that needs them) |
 | `--soft-fail` | - | bool | `false` | Always exit 0, even when a command fails (error is still printed to stderr; keeps wrapping scripts/CI from being interrupted) |
@@ -710,7 +721,7 @@ List the VIGOLIUM_* environment variables the binary reads
 | `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
-| `--set` | - | bool | `false` | List only the variables set in this environment |
+| `--only-set` | - | bool | `false` | List only the variables set in this environment |
 | `--show-secrets` | - | bool | `false` | Reveal sensitive values in plaintext instead of [redacted] |
 
 ## vigolium config get
@@ -804,6 +815,7 @@ Clean database records
 | `--severity` | - | string | - | Delete findings matching the specified severity level (findings only; HTTP records are kept) |
 | `--status` | - | intSlice | - | Delete records with matching HTTP status codes |
 | `--table` | - | string | - | Delete all rows from a specific table (e.g., http_records, findings, scans) |
+| `--tag` | - | stringArray | - | Delete records carrying this key=value label (written by 'import --tag'), their labels, and the findings only they evidence; repeatable, AND-combined |
 
 ## vigolium db compact
 
@@ -1014,6 +1026,16 @@ List endpoints (origin + path template) aggregated from stored traffic
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--status` | - | intSlice | - | Filter by HTTP status code (repeatable) |
 | `--to` | - | string | - | Only records sent at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
+
+## vigolium explain-argv
+
+Usage: `vigolium explain-argv -- <argv...>`
+
+Resolve a vigolium command line without running it: command, targets, reach, pinned refusals
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 
 ## vigolium export
 
@@ -1231,6 +1253,7 @@ Browse vulnerability findings with fuzzy search and filtering
 | `--confidence` | - | string | - | Filter by confidence: certain,firm,tentative (comma-separated) |
 | `--curl` | - | bool | `false` | Render each selected finding's proving request (its stored evidence, else its first linked record) as a curl command; -j gives {id, finding_hash, record_uuid, curl, argv} |
 | `--curl-all` | - | bool | `false` | Like --curl, but render every HTTP record linked to each finding |
+| `--cursor` | - | string | - | Resume a -j listing after the page that returned this next_cursor (stable while a scan writes; repeat the same filters, --sort and --asc; not with --offset) |
 | `--exclude-body` | - | string | - | Exclude findings whose linked request/response body contains the term (inverse of --body; bodies only) (alias: --exclude-body-search) |
 | `--exclude-columns` | - | stringSlice | - | Columns to hide (comma-separated) |
 | `--exclude-header` | - | string | - | Exclude findings whose linked request/response header block contains the term (inverse of --header; headers only) (alias: --exclude-header-search) |
@@ -1346,11 +1369,13 @@ Fingerprint origins with a bounded set of reads and store the result as host fac
 |------|-------|------|---------|-------------|
 | `--advanced-options` | `-a` | stringToString | - | Module-specific options as key=value (e.g. -a xss.dom=true) |
 | `--allow-risky-payloads` | - | bool | `false` | Allow risk:high payloads and modules below --intensity deep (OR-per-row and stacked time-blind SQLi, so MSSQL time-blind; state-changing probes). Always on at deep. Overrides config dynamic-assessment.allow_risky_payloads |
+| `--allow-writes` | - | bool | `false` | Let the dynamic assessment send stored write templates (POST/PUT/PATCH/DELETE first stored without a response, e.g. ingested spec operations). Off, they are skipped and counted in the templates_skipped_unsafe_method caveat |
 | `--auth` | - | stringArray | - | Inline session in 'name:Header:value' format. Repeatable; commas are literal (header values may contain commas). |
 | `--auth-file` | - | stringArray | - | Path to auth file (YAML/JSON, single session or sessions: bundle), or bare name resolved against scanning_strategy.session.session_dir. Repeatable; commas are literal. |
 | `--baseline` | - | string | - | Previous run's findings (.jsonl export or .sqlite store): --fail-on counts only findings not in it; -j adds baseline{new,unchanged,fixed,ignored} |
 | `--browser-engine` | `-E` | string | `chromium` | Browser engine: 'chromium', 'ungoogled', or 'fingerprint' |
 | `--browser-insecure` | - | bool | `false` | Spider with every browser security exception on: no sandbox, TLS errors ignored, mixed content allowed, same-origin policy off. For local test apps only |
+| `--browser-session-file` | - | string | - | Read the browser sessions (cookies, User-Agent, harvested token) an earlier run's spider saved here before the scan, and write this run's harvest back after spidering (JSON, mode 0600). Every phase sends the loaded session the way it sends a fresh spider harvest |
 | `--browsers` | `-b` | int | `1` | Browser instances to launch for spidering (clamped to 1; for parallel crawling set spidering.tabs in the config, which runs N tabs of the one browser) |
 | `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
@@ -1391,6 +1416,7 @@ Fingerprint origins with a bounded set of reads and store the result as host fac
 | `--max-body-bytes` | - | int | `4096` | Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap |
 | `--max-findings-per-module` | - | int | `50` | Stop reporting after N distinct findings per module; drops are counted in the summary and events (0 = unlimited) |
 | `--max-host-error` | - | int | `30` | Skip host after reaching this many consecutive errors |
+| `--max-module-tier` | - | string | - | Hard ceiling on module tiers: light, moderate, heavy or intrusive. Binds explicit -m/--module-tag selections too; config dynamic-assessment.max_module_tier, the lower of the two applies |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--max-per-host` | - | int|phase=int | `40` | Maximum concurrent requests allowed per host. Accepts a phase qualifier, repeatable: --max-per-host spidering=4 |
 | `--max-requests` | - | int | `0` | Stop the scan after N requests to the targets (0 = unlimited). Exact for gated traffic; the browser crawl is held to it within 500ms; nuclei is not counted (see request_cap_enforcement on scan.started). A scan it stops is partial with stop_reason request_budget. Config: scanning_pace.max_requests |
@@ -1620,6 +1646,8 @@ Import scan data, databases, or live Burp Proxy history
 | `--output` | `-o` | string | - | Report output path or gs://<project>/<key> URL (required when --format is set; supports {ts}) |
 | `--path` | - | string | - | Import only records whose path matches this pattern |
 | `--pdf-timeout` | - | duration | `0s` | Bound the headless-Chrome PDF render (0 = $VIGOLIUM_PDF_TIMEOUT, else 1m30s) |
+| `--redact` | - | string | - | **(overrides the global `--redact`)** Mask what the imported rows carry before they are stored: 'credentials' blanks Authorization, Proxy-Authorization and other credential headers, Cookie/Set-Cookie values and sensitive query parameters in each written record's raw request and response and each finding's evidence (the -j document's records_redacted / findings_redacted count them) |
+| `--redact-header` | - | stringArray | - | With --redact credentials: one more header name to mask as a credential (repeatable, case-insensitive), beside the ones vigolium recognizes itself |
 | `--report-duration` | - | string | - | Human-readable scan duration for the report (e.g. "10h42m5s") |
 | `--report-generated-at` | - | string | - | ISO timestamp for report generation (e.g. "2026-04-18T03:00:00Z") |
 | `--report-target` | - | string | - | Target name for the report (e.g. repository name or URL) |
@@ -1629,6 +1657,7 @@ Import scan data, databases, or live Burp Proxy history
 | `--severity` | - | string | - | Filter report findings by severity (comma-separated: critical,high,medium,low,info) |
 | `--skip-findings` | - | bool | `false` | Merge a vigolium SQLite source without its findings, their history and their OAST interactions; refused for any other source |
 | `--status` | - | intSlice | - | Import only these response status codes (comma-separated) |
+| `--tag` | - | stringArray | - | Label every HTTP record this import writes with key=value (repeatable); read them back with 'traffic --tag', delete them with 'db clean --tag'. Records already in the database are not written, so not tagged |
 | `--to` | - | string | - | Import only records up to this time |
 | `--upload` | - | bool | `false` | Upload the local import source to cloud storage after import |
 | `--upload-key` | - | string | - | Explicit storage key for --upload (default: imports/<basename>-<ts>.<ext>) |
@@ -1643,8 +1672,8 @@ Ingest HTTP requests into database (locally or via server)
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
 | `--dir` | - | string | - | Ingest every matching file in this directory in one process (pairs with -I to fix the format, and --dir-glob to narrow the match) |
 | `--dir-glob` | - | string | `*` | Filename pattern for --dir (e.g. '*.har') |
-| `--disable-fetch-response` | - | bool | `false` | Store requests without fetching responses during ingestion |
 | `--dry-run` | - | bool | `false` | Parse the input and report how many requests it yields, without sending or storing any |
+| `--fetch-responses` | - | bool | `false` | Send each request that arrives without a response and store the answer. Off by default: a request-only input (a spec operation, a URL list) is stored as a template and nothing is sent; a later scan sends its GET/HEAD/OPTIONS templates, and its write templates only with --allow-writes |
 | `--full-native-scan-on-receive` | - | bool | `false` | Run the full native scan pipeline (discovery + spidering + dynamic-assessment) continuously on received records, instead of dynamic-assessment only |
 | `--input` | `-i` | string | `-` | Input file path or spec (use - for stdin) |
 | `--input-mode` | `-I` | string | `urls` | Input format: urls, nuclei, openapi, wsdl, postman, curl, burpraw, burpxml, burpscope, har, deparos (aliases accepted, see --list-input-mode) |
@@ -1701,7 +1730,7 @@ _No command-specific flags._
 
 ## vigolium kit
 
-Standalone security utilities (cookies, harvest, js-beautify, jwt-crack, oast, param-mine, payload, secret-scan, tmp-clean, unlock-walk, viewstate-crack, wordlist)
+Standalone security utilities (cookies, h2-probe, harvest, js-beautify, jwt-crack, oast, param-mine, payload, secret-scan, tmp-clean, unlock-walk, viewstate-crack, wordlist)
 
 _No command-specific flags._
 
@@ -1764,6 +1793,32 @@ List the browser profiles on this machine and their cookie stores
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--user-data-dir` | - | stringSlice | - | Extra Chromium user-data directories to inspect |
+
+## vigolium kit h2-probe
+
+Usage: `vigolium kit h2-probe [-t URL]`
+
+Send one hand-framed HTTP/2 request and time the answer
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--chunk-size` | - | int | `0` | Split the body into DATA frames of at most N bytes (0 = one frame) |
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--content-length` | - | int64 | `-1` | content-length header to declare, whatever the body's real length (-1 = none) |
+| `--data` | `-d` | string | - | Request body, sent as DATA frames |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--h2c` | - | bool | `false` | Speak cleartext HTTP/2 with prior knowledge instead of TLS |
+| `--header` | `-H` | stringArray | - | Request header 'Name: value' (repeatable; names are lowercased) |
+| `--ignore-scope` | - | bool | `false` | Probe a host outside the configured host scope |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--method` | `-X` | string | `GET` | HTTP method (:method) |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
+| `--open-stream` | - | bool | `false` | Leave the stream open: no END_STREAM on the last frame |
+| `--require-scope` | - | bool | `false` | Refuse to send (out_of_scope) when the configured scope names no hosts, instead of admitting every host (also VIGOLIUM_REQUIRE_SCOPE=1) |
+| `--target` | `-t` | string | - | URL to probe (or pass it as the argument) |
+| `--timeout` | - | duration | `10s` | Wait this long for an answer after the last frame |
+| `--verify-tls` | - | bool | `false` | Verify the server certificate (off by default, as for scan traffic) |
 
 ## vigolium kit harvest
 
@@ -1851,7 +1906,7 @@ Discover hidden parameters an endpoint accepts (Arjun-style)
 | `--header` | `-H` | stringArray | - | Request header 'Name: value' (repeatable) |
 | `--ignore-scope` | - | bool | `false` | Mine an endpoint outside the configured host scope |
 | `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
-| `--location` | - | string | `auto` | Where names go: auto, query, form, json |
+| `--location` | - | string | `auto` | Where names go: auto, query, form, json, header, cookie |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--max-requests` | - | int | `60` | Request budget, baselines and confirmations included |
 | `--method` | `-X` | string | `GET` | HTTP method |
@@ -2324,11 +2379,13 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--advanced-options` | `-a` | stringToString | - | Module-specific options as key=value (e.g. -a xss.dom=true) |
 | `--all-records` | - | bool | `false` | Scan every HTTP record already stored in the active project (the database rescan). Required when no -t/-T/-i/stdin target is given; cannot be combined with them |
 | `--allow-risky-payloads` | - | bool | `false` | Allow risk:high payloads and modules below --intensity deep (OR-per-row and stacked time-blind SQLi, so MSSQL time-blind; state-changing probes). Always on at deep. Overrides config dynamic-assessment.allow_risky_payloads |
+| `--allow-writes` | - | bool | `false` | Let the dynamic assessment send stored write templates (POST/PUT/PATCH/DELETE first stored without a response, e.g. ingested spec operations). Off, they are skipped and counted in the templates_skipped_unsafe_method caveat |
 | `--auth` | - | stringArray | - | Inline session in 'name:Header:value' format. Repeatable; commas are literal (header values may contain commas). |
 | `--auth-file` | - | stringArray | - | Path to auth file (YAML/JSON, single session or sessions: bundle), or bare name resolved against scanning_strategy.session.session_dir. Repeatable; commas are literal. |
 | `--baseline` | - | string | - | Previous run's findings (.jsonl export or .sqlite store): --fail-on counts only findings not in it; -j adds baseline{new,unchanged,fixed,ignored} |
 | `--browser-engine` | `-E` | string | `chromium` | Browser engine: 'chromium', 'ungoogled', or 'fingerprint' |
 | `--browser-insecure` | - | bool | `false` | Spider with every browser security exception on: no sandbox, TLS errors ignored, mixed content allowed, same-origin policy off. For local test apps only |
+| `--browser-session-file` | - | string | - | Read the browser sessions (cookies, User-Agent, harvested token) an earlier run's spider saved here before the scan, and write this run's harvest back after spidering (JSON, mode 0600). Every phase sends the loaded session the way it sends a fresh spider harvest |
 | `--browsers` | `-b` | int | `1` | Browser instances to launch for spidering (clamped to 1; for parallel crawling set spidering.tabs in the config, which runs N tabs of the one browser) |
 | `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
@@ -2371,6 +2428,7 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--max-body-bytes` | - | int | `4096` | Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap |
 | `--max-findings-per-module` | - | int | `50` | Stop reporting after N distinct findings per module; drops are counted in the summary and events (0 = unlimited) |
 | `--max-host-error` | - | int | `30` | Skip host after reaching this many consecutive errors |
+| `--max-module-tier` | - | string | - | Hard ceiling on module tiers: light, moderate, heavy or intrusive. Binds explicit -m/--module-tag selections too; config dynamic-assessment.max_module_tier, the lower of the two applies |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--max-per-host` | - | int|phase=int | `40` | Maximum concurrent requests allowed per host. Accepts a phase qualifier, repeatable: --max-per-host spidering=4 |
 | `--max-requests` | - | int | `0` | Stop the scan after N requests to the targets (0 = unlimited). Exact for gated traffic; the browser crawl is held to it within 500ms; nuclei is not counted (see request_cap_enforcement on scan.started). A scan it stops is partial with stop_reason request_budget. Config: scanning_pace.max_requests |
@@ -2440,11 +2498,13 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--advanced-options` | `-a` | stringToString | - | Module-specific options as key=value (e.g. -a xss.dom=true) |
 | `--all-records` | - | bool | `false` | Scan every HTTP record already stored in the active project (the database rescan). Required when no -t/-T/-i/stdin target is given; cannot be combined with them |
 | `--allow-risky-payloads` | - | bool | `false` | Allow risk:high payloads and modules below --intensity deep (OR-per-row and stacked time-blind SQLi, so MSSQL time-blind; state-changing probes). Always on at deep. Overrides config dynamic-assessment.allow_risky_payloads |
+| `--allow-writes` | - | bool | `false` | Let the dynamic assessment send stored write templates (POST/PUT/PATCH/DELETE first stored without a response, e.g. ingested spec operations). Off, they are skipped and counted in the templates_skipped_unsafe_method caveat |
 | `--auth` | - | stringArray | - | Inline session in 'name:Header:value' format. Repeatable; commas are literal (header values may contain commas). |
 | `--auth-file` | - | stringArray | - | Path to auth file (YAML/JSON, single session or sessions: bundle), or bare name resolved against scanning_strategy.session.session_dir. Repeatable; commas are literal. |
 | `--baseline` | - | string | - | Previous run's findings (.jsonl export or .sqlite store): --fail-on counts only findings not in it; -j adds baseline{new,unchanged,fixed,ignored} |
 | `--browser-engine` | `-E` | string | `chromium` | Browser engine: 'chromium', 'ungoogled', or 'fingerprint' |
 | `--browser-insecure` | - | bool | `false` | Spider with every browser security exception on: no sandbox, TLS errors ignored, mixed content allowed, same-origin policy off. For local test apps only |
+| `--browser-session-file` | - | string | - | Read the browser sessions (cookies, User-Agent, harvested token) an earlier run's spider saved here before the scan, and write this run's harvest back after spidering (JSON, mode 0600). Every phase sends the loaded session the way it sends a fresh spider harvest |
 | `--browsers` | `-b` | int | `1` | Browser instances to launch for spidering (clamped to 1; for parallel crawling set spidering.tabs in the config, which runs N tabs of the one browser) |
 | `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
@@ -2487,6 +2547,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--max-body-bytes` | - | int | `4096` | Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap |
 | `--max-findings-per-module` | - | int | `50` | Stop reporting after N distinct findings per module; drops are counted in the summary and events (0 = unlimited) |
 | `--max-host-error` | - | int | `30` | Skip host after reaching this many consecutive errors |
+| `--max-module-tier` | - | string | - | Hard ceiling on module tiers: light, moderate, heavy or intrusive. Binds explicit -m/--module-tag selections too; config dynamic-assessment.max_module_tier, the lower of the two applies |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--max-per-host` | - | int|phase=int | `40` | Maximum concurrent requests allowed per host. Accepts a phase qualifier, repeatable: --max-per-host spidering=4 |
 | `--max-requests` | - | int | `0` | Stop the scan after N requests to the targets (0 = unlimited). Exact for gated traffic; the browser crawl is held to it within 500ms; nuclei is not counted (see request_cap_enforcement on scan.started). A scan it stops is partial with stop_reason request_budget. Config: scanning_pace.max_requests |
@@ -2509,6 +2570,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--oast-url` | - | string | - | Fixed out-of-band callback URL instead of interactsh; put {nonce} in it (https://{nonce}.cb.example.com) to attribute logged callbacks with 'vigolium oast ingest' |
 | `--omit-response` | - | bool | `false` | Omit raw HTTP request/response bytes from output file (keeps metadata, smaller files) |
 | `--only` | - | string | - | Run only these phases (comma-separated: ingestion, probe, fingerprint, discovery, external-harvest, spidering, known-issue-scan, dynamic-assessment, extension, heuristics-check, port-sweep, targeted-respider; aliases accepted, see 'vigolium run --help') |
+| `--only-new-since` | - | string | - | Assess only the stored records added after this scan finished (scan uuid, 8+ char prefix, latest or previous): an incremental --all-records. Runs the dynamic assessment alone unless --only/--skip pick phases. Cannot be combined with -t/-T/-i, --record-uuid, -S or --db-isolate |
 | `--output` | `-o` | string | - | Write findings to specified output file |
 | `--parallel` | `-P` | int | `1` | Scan up to N targets concurrently as isolated child processes (requires -S -T --split-by-host, OR --db-isolate -T which merges into --db and exports one unified output; each target keeps its own --concurrency, so real in-flight requests ≈ N × --concurrency) |
 | `--param-mining` | - | bool | `false` | Mine hidden parameters (Arjun-style) on this scan's dynamic endpoints before the assessment, so injection modules test them too. Default: on at --intensity deep, off below; --param-mining=false turns it off at deep. Budget: dynamic-assessment.param_mining in config |
@@ -2551,6 +2613,20 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--timeout` | - | duration | `15s` | HTTP request timeout (e.g. 30s, 1m, 2h) |
 | `--tls-probe` | - | bool | `false` | Probe each HTTPS target's TLS: negotiated version/cipher plus the leaf certificate (subject, SANs, issuer, validity, fingerprints). Stored per host:port; read it with 'vigolium hosts -j' or as 'tls' on 'traffic -j' rows. Read by the probe phase (the fingerprint phase always probes HTTPS) |
 | `--upload-results` | - | bool | `false` | Upload scan results to cloud storage after completion (requires storage config) |
+
+## vigolium scan coverage
+
+Usage: `vigolium scan coverage <scan>`
+
+Which module finished on which record: a scan's dynamic-assessment coverage ledger
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `1000` | Return at most N (record, module) cells (0 = all) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | Skip the first N cells (follow output_budget.next_offset) |
 
 ## vigolium scan diff
 
@@ -2647,6 +2723,7 @@ Scan a raw HTTP request for vulnerabilities
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--allow-risky-payloads` | - | bool | `false` | Allow risk:high payloads and modules below --intensity deep (OR-per-row and stacked time-blind SQLi, so MSSQL time-blind; state-changing probes). Always on at deep. Overrides config dynamic-assessment.allow_risky_payloads |
+| `--allow-writes` | - | bool | `false` | Let the dynamic assessment send stored write templates (POST/PUT/PATCH/DELETE first stored without a response, e.g. ingested spec operations). Off, they are skipped and counted in the templates_skipped_unsafe_method caveat |
 | `--auth` | - | stringArray | - | Inline session in 'name:Header:value' format. Repeatable; commas are literal (header values may contain commas). |
 | `--auth-file` | - | stringArray | - | Path to auth file (YAML/JSON, single session or sessions: bundle), or bare name resolved against scanning_strategy.session.session_dir. Repeatable; commas are literal. |
 | `--baseline` | - | string | - | Previous run's findings (.jsonl export or .sqlite store): --fail-on counts only findings not in it; -j adds baseline{new,unchanged,fixed,ignored} |
@@ -2673,6 +2750,7 @@ Scan a raw HTTP request for vulnerabilities
 | `--max-body-bytes` | - | int | `4096` | Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap |
 | `--max-findings-per-module` | - | int | `50` | Stop reporting after N distinct findings per module; drops are counted in the summary and events (0 = unlimited) |
 | `--max-host-error` | - | int | `30` | Skip host after reaching this many consecutive errors |
+| `--max-module-tier` | - | string | - | Hard ceiling on module tiers: light, moderate, heavy or intrusive. Binds explicit -m/--module-tag selections too; config dynamic-assessment.max_module_tier, the lower of the two applies |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--max-per-host` | - | int|phase=int | `40` | Maximum concurrent requests allowed per host. Accepts a phase qualifier, repeatable: --max-per-host spidering=4 |
 | `--max-requests` | - | int | `0` | Stop the scan after N requests to the targets (0 = unlimited). Exact for gated traffic; the browser crawl is held to it within 500ms; nuclei is not counted (see request_cap_enforcement on scan.started). A scan it stops is partial with stop_reason request_budget. Config: scanning_pace.max_requests |
@@ -2714,6 +2792,7 @@ Scan a single URL for vulnerabilities
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--allow-risky-payloads` | - | bool | `false` | Allow risk:high payloads and modules below --intensity deep (OR-per-row and stacked time-blind SQLi, so MSSQL time-blind; state-changing probes). Always on at deep. Overrides config dynamic-assessment.allow_risky_payloads |
+| `--allow-writes` | - | bool | `false` | Let the dynamic assessment send stored write templates (POST/PUT/PATCH/DELETE first stored without a response, e.g. ingested spec operations). Off, they are skipped and counted in the templates_skipped_unsafe_method caveat |
 | `--auth` | - | stringArray | - | Inline session in 'name:Header:value' format. Repeatable; commas are literal (header values may contain commas). |
 | `--auth-file` | - | stringArray | - | Path to auth file (YAML/JSON, single session or sessions: bundle), or bare name resolved against scanning_strategy.session.session_dir. Repeatable; commas are literal. |
 | `--baseline` | - | string | - | Previous run's findings (.jsonl export or .sqlite store): --fail-on counts only findings not in it; -j adds baseline{new,unchanged,fixed,ignored} |
@@ -2740,6 +2819,7 @@ Scan a single URL for vulnerabilities
 | `--max-body-bytes` | - | int | `4096` | Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap |
 | `--max-findings-per-module` | - | int | `50` | Stop reporting after N distinct findings per module; drops are counted in the summary and events (0 = unlimited) |
 | `--max-host-error` | - | int | `30` | Skip host after reaching this many consecutive errors |
+| `--max-module-tier` | - | string | - | Hard ceiling on module tiers: light, moderate, heavy or intrusive. Binds explicit -m/--module-tag selections too; config dynamic-assessment.max_module_tier, the lower of the two applies |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--max-per-host` | - | int|phase=int | `40` | Maximum concurrent requests allowed per host. Accepts a phase qualifier, repeatable: --max-per-host spidering=4 |
 | `--max-requests` | - | int | `0` | Stop the scan after N requests to the targets (0 = unlimited). Exact for gated traffic; the browser crawl is held to it within 500ms; nuclei is not counted (see request_cap_enforcement on scan.started). A scan it stops is partial with stop_reason request_budget. Config: scanning_pace.max_requests |
@@ -2789,6 +2869,18 @@ Print the JSON Schema of -j documents, --events lines and the error envelope
 Print every schema in one object
 
 _No command-specific flags._
+
+## vigolium schema block-signatures
+
+List the WAF/CDN block, challenge and presence signatures the block classifier reads
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium schema command
 
@@ -2854,9 +2946,27 @@ List the commands, event types and documents that have a schema
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
+## vigolium schema pace
+
+List which pace dial (--concurrency, --rate-limit, --max-per-host) each phase enforces
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
+
 ## vigolium schema plan
 
 Print the scan plan schema (scan --dry-run, the scan.plan event)
+
+_No command-specific flags._
+
+## vigolium schema proof
+
+Print the proof recipe schema (finding -j proof: request, control, oracle, preconditions)
 
 _No command-specific flags._
 
@@ -2869,6 +2979,7 @@ Describe the database: tables, columns, and the -j field each column surfaces as
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--ddl` | - | bool | `false` | Print the SQLite DDL that creates an empty store at this binary's schema version, one ;-terminated statement per line (-j: {schema_version, statements}); opens no database |
 | `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
@@ -3072,6 +3183,7 @@ Print a skill's full content
 | `--all` | - | bool | `false` | Output every bundled skill |
 | `--full` | - | bool | `false` | Include reference files, not just SKILL.md |
 | `--list-refs` | - | bool | `false` | List the skill's files (SKILL.md and references) with byte and line counts instead of printing them |
+| `--profile` | - | string | - | Print a generated profile of vigolium-scanner instead of the bundle: embedded (the safe verb set and the contract pointer, stamped with this build) |
 | `--ref` | - | stringArray | - | Print only this reference file: recipes, recipes.md or references/recipes.md (repeatable) |
 
 ## vigolium skills install
@@ -3232,6 +3344,7 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int | `10` | Concurrent replays (--replay); keep low to avoid overwhelming an intercepting proxy like Burp |
 | `--curl` | - | bool | `false` | Render each matched record as a curl command (URL from the stored scheme/host/port; renders at most 20 without -a); -j gives {uuid, url, curl, argv} |
+| `--cursor` | - | string | - | Resume a -j listing after the page that returned this next_cursor (stable while a scan writes; repeat the same filters, --sort and --asc; not with --offset) |
 | `--exclude-body` | - | string | - | Exclude records whose request/response body contains the term (inverse of --body; bodies only, not headers) (alias: --exclude-body-search) |
 | `--exclude-columns` | - | stringSlice | - | Columns to hide (comma-separated) |
 | `--exclude-header` | - | string | - | Exclude records whose HTTP header block contains the term (inverse of --header; headers only, not bodies) (alias: --exclude-header-search) |
@@ -3269,6 +3382,7 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--source` | - | string | - | Filter by record source (e.g. burp, caido, scanner, probe, ingest-cli, ingest-server, ingest-proxy, seed) |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--status` | - | intSlice | - | Filter by HTTP status code (repeatable, e.g. --status 200 --status 404) |
+| `--tag` | - | stringArray | - | Only records carrying this key=value label (written by 'import --tag'); repeatable, AND-combined. -j rows carry their labels under tags |
 | `--timeout` | - | duration | `15s` | Per-request timeout for --replay (e.g. 30s, 1m) |
 | `--to` | - | string | - | Show records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--tree` | - | bool | `false` | Display as host/path hierarchy tree |
@@ -3307,6 +3421,18 @@ Read one stored message's headers without its body
 | `--output` | `-o` | string | - | Write to this file instead of stdout; '-' forces stdout |
 | `--request` | - | bool | `false` | Read the request side |
 | `--response` | - | bool | `false` | Read the response side (default) |
+| `--stateless` | `-S` | bool | `false` | Read from --db (a standalone .sqlite) with project scoping off; never writes to your project DB |
+| `--uuid` | - | string | - | UUID (or unique prefix, 8+ chars) of the stored record to read; the positional argument is the same (alias: --record-uuid) |
+
+## vigolium traffic request
+
+Usage: `vigolium traffic request [uuid]`
+
+Read one stored request whole: method, URL, headers and body
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--uuid` | - | string | - | UUID (or unique prefix, 8+ chars) of the stored record to read; the positional argument is the same (alias: --record-uuid) |
 

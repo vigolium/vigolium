@@ -146,7 +146,16 @@ func getKnownAPIs() (map[string]bool, []string) {
 
 // parseSobekError extracts line/col/message from a sobek compile error.
 func parseSobekError(err error) LintIssue {
-	// sobek errors look like: "filename: Line 5:12 Unexpected token )"
+	// Prefer the typed error: its rendered text has changed across sobek
+	// releases ("SyntaxError: <msg> at file:5:12" today).
+	var syn *sobek.CompilerSyntaxError
+	if errors.As(err, &syn) && syn.File != nil {
+		if pos := syn.File.Position(syn.Offset); pos.Line > 0 {
+			return LintIssue{Line: pos.Line, Col: pos.Column, Message: syn.Message}
+		}
+	}
+
+	// Older sobek errors look like: "filename: Line 5:12 Unexpected token )"
 	// or: "(anonymous): Line 5:12 Unexpected token )"
 	msg := err.Error()
 	if m := reSobekError.FindStringSubmatch(msg); len(m) == 4 {

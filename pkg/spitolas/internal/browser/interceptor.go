@@ -1,6 +1,9 @@
 package browser
 
 import (
+	"encoding/base64"
+	"net/http"
+
 	"github.com/go-rod/rod/lib/proto"
 	"go.uber.org/zap"
 )
@@ -19,15 +22,26 @@ const (
 	// InterceptFail fails the request with BlockedByClient: nothing reaches
 	// the network.
 	InterceptFail
+	// InterceptRewrite is a response-stage verdict (DecideResponse only): the
+	// request already reached the network, and the page receives the upstream
+	// response as InterceptDecision.Rewrite changes it. A rewrite that returns
+	// an error lets the upstream response through unchanged.
+	InterceptRewrite
 )
 
 // InterceptDecision is an Interceptor's answer for one request. Status,
-// ContentType and Body are read only for InterceptFulfill.
+// ContentType and Body are read only for InterceptFulfill; Rewrite only for
+// InterceptRewrite.
 type InterceptDecision struct {
 	Verdict     InterceptVerdict
 	Status      int
 	ContentType string
 	Body        []byte
+	// Rewrite receives the upstream status and body (nil when the browser
+	// could not read it) and returns the status and body the page receives.
+	// The upstream headers are kept, less the ones that describe the old body's
+	// framing (Content-Length, Content-Encoding, Transfer-Encoding).
+	Rewrite func(status int, body []byte) (int, []byte, error)
 }
 
 // Interceptor answers paused requests ahead of the page's credential, method
@@ -43,6 +57,14 @@ type Interceptor struct {
 	// before any network event the answer causes (loadingFinished,
 	// loadingFailed).
 	Decide func(e *proto.FetchRequestPaused) InterceptDecision
+	// ResponsePatterns are Fetch URL patterns paused a second time, once their
+	// response headers arrive (the Fetch response stage), for DecideResponse.
+	ResponsePatterns []string
+	// DecideResponse is called once per request paused at the response stage.
+	// Continue passes the upstream response to the page; Rewrite changes it;
+	// Fulfill replaces it; Fail fails it. Like Decide, whatever it (and a
+	// Rewrite it returns) records happens before the page sees the answer.
+	DecideResponse func(e *proto.FetchRequestPaused) InterceptDecision
 }
 
 // InstallInterceptor installs ic on the page's Fetch interceptor (nil removes
@@ -96,4 +118,71 @@ func (p *Page) answerIntercepted(ic *Interceptor, e *proto.FetchRequestPaused, p
 		return true
 	}
 	return false
+}
+
+// rewriteDroppedHeaders describe the upstream body's framing and encoding.
+// Fetch.getResponseBody returns the decoded body, so a rewritten answer
+// carries neither the old length nor the old content-coding.
+var rewriteDroppedHeaders = map[string]bool{
+	"Content-Length":    true,
+	"Content-Encoding":  true,
+	"Transfer-Encoding": true,
+}
+
+// answerResponse answers one request paused at the response stage under ic.
+// A request paused with a network error, or with no DecideResponse, continues
+// unchanged.
+func (p *Page) answerResponse(ic *Interceptor, e *proto.FetchRequestPaused, page proto.Client) {
+	pass := func() {
+		if err := (proto.FetchContinueResponse{RequestID: e.RequestID}).Call(page); err != nil {
+			// A response paused with a network error takes continueRequest.
+			if err2 := (proto.FetchContinueRequest{RequestID: e.RequestID}).Call(page); err2 != nil {
+				zap.L().Debug("browser interceptor: continue response", zap.Error(err), zap.Error(err2))
+			}
+		}
+	}
+	if ic == nil || ic.DecideResponse == nil || e.ResponseErrorReason != "" || e.ResponseStatusCode == nil {
+		pass()
+		return
+	}
+	d := ic.DecideResponse(e)
+	switch d.Verdict {
+	case InterceptFulfill, InterceptFail:
+		p.answerIntercepted(&Interceptor{Decide: func(*proto.FetchRequestPaused) InterceptDecision { return d }}, e, page)
+	case InterceptRewrite:
+		if d.Rewrite == nil {
+			pass()
+			return
+		}
+		var body []byte
+		if res, err := (proto.FetchGetResponseBody{RequestID: e.RequestID}).Call(page); err == nil {
+			body = []byte(res.Body)
+			if res.Base64Encoded {
+				if dec, derr := base64.StdEncoding.DecodeString(res.Body); derr == nil {
+					body = dec
+				} else {
+					body = nil
+				}
+			}
+		}
+		status, out, err := d.Rewrite(*e.ResponseStatusCode, body)
+		if err != nil {
+			pass()
+			return
+		}
+		headers := make([]*proto.FetchHeaderEntry, 0, len(e.ResponseHeaders))
+		for _, h := range e.ResponseHeaders {
+			if h != nil && !rewriteDroppedHeaders[http.CanonicalHeaderKey(h.Name)] {
+				headers = append(headers, h)
+			}
+		}
+		if out == nil {
+			out = []byte{}
+		}
+		if ferr := (proto.FetchFulfillRequest{RequestID: e.RequestID, ResponseCode: status, ResponseHeaders: headers, Body: out}).Call(page); ferr != nil {
+			zap.L().Debug("browser interceptor: fulfill rewritten response", zap.Error(ferr))
+		}
+	default:
+		pass()
+	}
 }

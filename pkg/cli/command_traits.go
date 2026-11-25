@@ -10,6 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/deparos/waf"
 	"github.com/vigolium/vigolium/pkg/dnsresolve"
 	"github.com/vigolium/vigolium/pkg/fuzz"
 )
@@ -150,6 +151,7 @@ var commandTraits = map[string]commandTrait{
 	"kit oast new":         {Kind: kindRead, DB: dbNone, Shape: noShape("one session's URLs")},
 	"kit oast poll":        {Kind: kindRead, DB: dbNone, Shape: noShape("one session's interactions")},
 	"kit param-mine":       {Kind: kindRead, DB: dbNone, SendsTraffic: true, Shape: rowsShape().vocabFrom(kitParamMineItem{})},
+	"kit h2-probe":         {Kind: kindRead, DB: dbNone, SendsTraffic: true, Shape: rowsShape().vocabFrom(kitH2ProbeItem{})},
 	"kit payload":          {Kind: kindRead, DB: dbNone, Shape: noShape("rows are plain strings")},
 	"kit secret-scan":      {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(kitSecretMatch{})},
 	"kit tmp-clean":        {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
@@ -189,19 +191,23 @@ var commandTraits = map[string]commandTrait{
 	"scan ls":     {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned()},
 	"scan status": {Kind: kindRead, DB: dbRead, Shape: objectShape().drop("plan")},
 	"scan stop":   {Kind: kindMutation, DB: dbWrite, WritesGlobal: true},
+	// (record, module) cells of the coverage ledger; reads only, sends nothing.
+	"scan coverage": {Kind: kindRead, DB: dbRead, ReadOnly: true, SendsTraffic: false, Shape: rowsShape().pagedByQuery().vocabFrom(database.RecordModuleCoverage{})},
 	// Polls during a scan: must never take the write lock.
 	"scan wait":           {Kind: kindScan, DB: dbRead, Shape: scanDocumentShape},
 	"scan-request":        {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: scanDocumentShape, Runtime: rtMemLimit | rtStatelessHome | rtStatelessWrite},
 	"scan-url":            {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: scanDocumentShape, Runtime: rtMemLimit | rtStatelessHome | rtStatelessWrite},
 	"schema":              {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"schema all":          {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
-	"schema commands":     {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(commandTraitView{}).drop("value_flags")},
+	"schema commands":     {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(commandTraitView{}).drop("value_flags", "aliases", "targets", "reach_flags", "reach_note")},
 	"schema command":      {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
 	"schema error":        {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
 	"schema event":        {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
 	"schema flags":        {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"schema list":         {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
+	"schema pace":         {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(schemaPaceRow{})},
 	"schema plan":         {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
+	"schema proof":        {Kind: kindStream, DB: dbNone, Shape: noShape("a JSON Schema document")},
 	"schema storage":      {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape()},
 	"scope":               {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"scope add":           {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
@@ -235,8 +241,14 @@ var commandTraits = map[string]commandTrait{
 	"traffic":             {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery()},
 	"traffic body":        {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
 	"traffic headers":     {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
+	"traffic request":     {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
 	"update":              {Kind: kindMutation, DB: dbNone, WritesGlobal: true},
 	"version":             {Kind: kindRead, DB: dbNone, Shape: objectShape()},
+
+	// The block classifier's signature table (waf.Signatures).
+	"schema block-signatures": {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(waf.Signature{})},
+	// One command line resolved without running it (explain_argv.go).
+	"explain-argv": {Kind: kindRead, DB: dbNone, Shape: objectShape()},
 }
 
 // commandTrait is one command's row in commandTraits.

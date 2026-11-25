@@ -93,6 +93,13 @@ vigolium traffic -j --full-body --max-output-bytes 65536
   not page (`fuzz`, `replay`, `dns`, `match-not-found`, the scan document) gets
   `full_result` instead of `next_offset`: why there is no next page, and to use
   `-o <file>` for every row.
+- `finding -j` and `traffic -j` always state `truncated`, and a page that stops
+  short (by `-n` or by the budget) carries `next_cursor`. Resume with
+  `--cursor <next_cursor>` and the same filters, `--sort` and `--asc` (not with
+  `--offset`): the cursor is a keyset position, so rows a running scan writes
+  or merges do not shift the next page the way they shift an offset. A cursor
+  under another order, or from the other listing, exits `2`. A listing merged
+  with live Burp history (`--burp-bridge-url`) pages by offset only.
 - A budget too small for the envelope's fixed parts fails with exit `1` and
   `error.code: "output_too_large"` rather than emitting an over-budget document.
 - It requires `-j/--json` (exit `2` otherwise): a silently ignored budget is
@@ -147,8 +154,9 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
   nuclei/uncover libraries create their config directories
   (`~/Library/Application Support/{nuclei,uncover}` on macOS,
   `~/.config/{nuclei,uncover}` on Linux) at package init, before any flag is
-  parsed; set `XDG_CONFIG_HOME`/`NUCLEI_CONFIG_DIR` to a writable path (e.g.
-  `/tmp`) to keep them out of `$HOME`.
+  parsed; set `VIGOLIUM_STATE_DIR` to move them, with every other path vigolium
+  writes (config, database, presets, sessions, caches, Chrome for Testing,
+  nuclei templates), out of `$HOME`.
 - **Every scan command prints ONE scan document under `-j`** — `scan`, `run`,
   `scan-url` and `scan-request`, on every path (direct, `-S`, `-o`, `--only`,
   `--skip`, one target or many, success or failure). See
@@ -182,10 +190,9 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
   "reproduced". `--dump-traffic` prints replay and fuzz exchanges too.
   `--read-only` protects the database file, not the target: sends still go out.
 - **Both commands enforce the config scope**, with or without `-S` (see
-  [Scope admission](#scope-admission)). A refused input is not sent; its target
-  entry says `admitted: false`, `reason: "out_of_scope"`, `code: <rule>`, and
-  when every input was refused the command exits `1` with
-  `stop_reason: "no_targets_in_scope"`. `--ignore-scope` scans it anyway.
+  [Scope admission](#scope-admission)). An input the scope refuses stops the
+  command at entry: exit `2`, `error.code: "out_of_scope"`, nothing sent, no
+  scan row. `--ignore-scope` scans it anyway.
 
 ### Plan first (`--dry-run`)
 
@@ -209,8 +216,9 @@ vigolium scan -t https://target.example --dry-run -j | jq '.plan | {phases: [.ph
   `default`, `gate`, `flag`, `scope`). `budget.semantics` says what a phase's
   max-duration bounds (`per_target`, `per_target_capped`, `phase`, `per_leg`,
   `per_call`) and `budget.source` where it came from.
-- `targets` carries scope admission. When scope refuses every seeded target the
-  dry run exits `1` with `error.code: no_targets_in_scope`, as the scan would.
+- `targets` carries scope admission. A seeded target the scope refuses stops the
+  dry run before the plan with exit `2`, `error.code: out_of_scope`, as it
+  stops the scan.
 - `estimate` is a rough request count (`confidence: "rough"`, a `basis` per
   phase). `ceiling_by_pace` — rate limit × the time budget — is the one hard
   number; `--max-requests` clamps the rest (`clamped_to`, `hits_max_requests`).
@@ -497,7 +505,7 @@ row name, or flattens a single object back to the top level, for one release.
 | `kit payload` | read | payloads (class names with `--list`) | `classes`, `count` | `payloads` / `classes` |
 | `kit js-beautify`, `kit jwt-crack` | read | `[result]` | — | `.` |
 | `kit tmp-clean` | mutation | `[result]` | — | `.` |
-| `kit unlock-walk` | read | `[{origin, landing, routes, routes_skipped?, stubs_never_hit, writes_allowed, totals, stored, store_skip?}]`; each route `{route, url, navigation, final_url, redirected, title?, text_sample?, requests[{method, url, type, status, record_uuid}], aborted_writes, stubs_hit, error?}` | — | `.` |
+| `kit unlock-walk` | read | `[{origin, landing, routes, routes_skipped?, stubs_never_hit, rewrites_never_hit, clicks_refused?, skipped_controls?, writes_allowed, totals, stored, store_skip?}]`; each route `{route, url, navigation, final_url, redirected, title?, text_sample?, requests[{method, url, type, status, record_uuid, via?}], aborted_writes, stubs_hit, rewrites_hit[{rewrite, method, path, url, upstream_status, status, applied, error?}], clicks?[{kind, label, requests, left_route?, error?}], clicks_skipped_destructive?, error?}`; a rewritten exchange is never stored nor listed in `requests` | — | `.` |
 | `js` | read | `[{value}]`, the return value as JSON | — | — (was the raw value; still is without `-j`) |
 | `extensions eval <code>` | read | `[{value}]`, as `js` (with `--record-uuid` it prints the `extensions run` document) | — | — |
 | `extensions example` | read | `[{key, lang, type, title, filename, save_as, code}]` (no `code` under `--list`) | `filter`, `lang`, `list_only` | `examples` |
@@ -1160,14 +1168,18 @@ stderr is not a terminal it is already an error.
 Every scan checks its targets against the configured scope before it sends
 anything, with the same matcher the scan then enforces:
 
-- **Every target refused → exit `1`, `error.code: "no_targets_in_scope"`, and
-  no request is sent.** The message names each target with the rule that
-  refused it (`scope.host.include`, `scope.host.exclude`, `scope.path.include`,
-  `scope.path.exclude`, `scope.cli_origin_mode`, `static_file`) and the config
-  key to fix. The scan row still exists — `failed`, `completeness: partial`,
-  `stop_reason: no_targets_in_scope` — so `log <uuid>` explains it.
-- **Some refused → the rest are scanned**, the scan is `partial` with reason
-  `targets_out_of_scope`, and the exit code stays `0`.
+- **Any target refused → exit `2`, `error.code: "out_of_scope"`, and no
+  request is sent** (`scan`, `scan-url`, `scan-request`, like every sender).
+  The message names each target with the rule that refused it
+  (`scope.host.include`, `scope.host.exclude`, `scope.path.include`,
+  `scope.path.exclude`, `scope.cli_origin_mode`, `scope.port.include`,
+  `scope.port.exclude`, `scope.cidr.include`, `scope.cidr.exclude`,
+  `private_address`, `metadata_address`, `static_file`) and the config key to
+  fix. No scan row is written. `VIGOLIUM_REQUIRE_SCOPE=1` also refuses a scope
+  that names no hosts.
+- **At send time** the requester judges every request and redirect hop against
+  the same scope, including the addresses a name resolves to (see
+  [configuration](configuration.md#scope)).
 - The verdict is on the row as the `preflight` phase outcome:
   `targets: {requested, admitted, reached, rejected: [{target, code}]}`.
   `scan.started` and `scan.finished` carry `targets_admitted` and
@@ -1231,6 +1243,18 @@ scan, and partial is **not** an error:
   short, with `reasons` and `limits`. A phase whose own `max_duration` fired
   inside an otherwise healthy scan is included — that used to report
   `"completed"` with nothing to read.
+- **`phase.finished` reports `"status": "skipped"`** for a phase that did no
+  work, with the reason: `no_modules`, or `no_inputs` for a dynamic assessment
+  that admitted zero inputs. `no_inputs` makes the scan partial only when the
+  phase was named with `--only` (the phase outcome carries `explicit: true`).
+- **`scan.finished.caveats` name the capabilities configuration switched off**:
+  `oast_disabled`, `module_tier_capped` and `risky_payloads_disabled`, the last
+  two with the module ids they removed in `modules`. They never change the
+  status.
+- **A scan refused before its stream begins still ends the stream.** With
+  `--events`, a usage error, unknown flag or config refusal writes one
+  `scan.finished` with `status: "failed"`, `exit_code`, `error_code` and
+  `records_written: 0` (feature `terminal-always`).
 - **`reasons` are defects; `limits` are configured bounds.** A `target_budget`
   limit means a per-target time box did its job, so it never downgrades a status.
   Act on `reasons`.

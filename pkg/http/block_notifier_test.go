@@ -144,7 +144,7 @@ func (n *blockNotifier) report(host string, resp *httpUtils.ResponseChain) {
 	if n == nil || n.sink == nil || host == "" || resp == nil {
 		return
 	}
-	n.reportBlock(host, classifyWAFBlock(resp), responseChainStatus(resp))
+	n.reportBlock(host, classifyWAFBlock(resp), responseChainStatus(resp), BlockTransportRequester)
 }
 
 // A CDN in the path is not a block: an application's own 403 behind
@@ -163,13 +163,58 @@ func TestClassifyWAFBlock_AppForbiddenBehindCDNIsNotABlock(t *testing.T) {
 	}
 
 	n := &blockNotifier{seen: make(map[string]struct{})}
-	n.reportBlock("example.com", classifyWAFBlock(app), 403)
+	n.reportBlock("example.com", classifyWAFBlock(app), 403, BlockTransportRequester)
 	edge := cloudflareBlockChain(t)
 	defer edge.Close()
-	n.reportBlock("edge.example.com", classifyWAFBlock(edge), 403)
+	n.reportBlock("edge.example.com", classifyWAFBlock(edge), 403, BlockTransportRequester)
 	counts := map[string]int64{}
 	n.counts.Range(func(k, v any) bool { counts[k.(string)] = v.(*atomic.Int64).Load(); return true })
 	if counts["example.com"] != 0 || counts["edge.example.com"] != 1 {
 		t.Fatalf("block counts = %v, want only edge.example.com", counts)
 	}
+}
+
+// A vendor challenge served on 200 is classified (the block-status gate alone
+// never looked at it), and the notice says challenge with the vendor named.
+func TestClassifyWAFBlock_ChallengeOn200(t *testing.T) {
+	ch := buildChain(t, 200, http.Header{"Content-Type": {"text/html"}},
+		`<html><title>Just a moment...</title><script>window._cf_chl_opt={cvId:'3'}</script></html>`)
+	defer ch.Close()
+	block := classifyWAFBlock(ch)
+	if block == nil || block.Kind() != "challenge" || block.Vendor() != "cloudflare" {
+		t.Fatalf("200 Cloudflare challenge = %+v, want a cloudflare challenge", block)
+	}
+
+	ok := buildChain(t, 200, http.Header{"Content-Type": {"text/html"}}, `<html>Welcome</html>`)
+	defer ok.Close()
+	if got := classifyWAFBlock(ok); got != nil {
+		t.Fatalf("an ordinary 200 classified as %+v", got)
+	}
+}
+
+// Every sender reports through one notifier: a block the discovery transport
+// saw first is the host's one notice, carries its transport and kind, counts
+// toward BlockCounts, and a later requester block on the host stays silent.
+func TestRequester_ReportBlockSharesTheNotifier(t *testing.T) {
+	r := &Requester{blockNotifier: &blockNotifier{seen: make(map[string]struct{})}}
+	var notices []BlockNotice
+	r.SetBlockNotifier(func(n BlockNotice) { notices = append(notices, n) })
+
+	app := buildChain(t, 403, http.Header{"Content-Type": {"text/html"}}, "<h1>Forbidden</h1>")
+	defer app.Close()
+	r.ReportBlock("app.test", classifyWAFBlock(app), 403, BlockTransportDiscovery)
+	r.blockNotifier.reportBlock("app.test", classifyWAFBlock(app), 403, BlockTransportRequester)
+	r.ReportBlock("app.test", nil, 200, BlockTransportSpider)
+
+	if len(notices) != 1 {
+		t.Fatalf("notices = %+v, want exactly one", notices)
+	}
+	if n := notices[0]; n.Transport != BlockTransportDiscovery || n.Kind != "refused" || n.Status != 403 {
+		t.Fatalf("notice = %+v, want discovery/refused/403", n)
+	}
+	if got := r.BlockCounts()["app.test"]; got != 2 {
+		t.Fatalf("BlockCounts = %d, want 2 (nil block is not a block)", got)
+	}
+	var nilR *Requester
+	nilR.ReportBlock("x", classifyWAFBlock(app), 403, BlockTransportSpider) // nil-safe
 }

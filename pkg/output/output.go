@@ -104,6 +104,11 @@ type ResultEvent struct {
 	InsertionPointType string `json:"insertion_point_type,omitempty"`
 	Payload            string `json:"payload,omitempty"`
 
+	// Proof is the module's decision as a recipe a caller re-runs itself
+	// (proof.go); nil for a module that has not opted in. Persisted as
+	// findings.proof.
+	Proof *ProofRecipe `json:"proof,omitempty"`
+
 	// Error field for error reporting
 	Error string `json:"error,omitempty"`
 

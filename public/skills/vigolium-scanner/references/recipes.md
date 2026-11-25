@@ -11,7 +11,7 @@ command router.
 The loop an agent runs against a target it has scanned before.
 
 ```bash
-# 1. Plan: sends nothing. Exit 1 no_targets_in_scope if scope refuses the target.
+# 1. Plan: sends nothing. Exit 2 out_of_scope if scope refuses the target.
 vigolium scan -t https://target.example --dry-run -j > plan.json
 jq '.plan.estimate, .plan.warnings' plan.json
 

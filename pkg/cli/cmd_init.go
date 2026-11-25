@@ -64,12 +64,10 @@ func initSkipsDownloads() string {
 func runInitCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 
-	homeDir, err := os.UserHomeDir()
+	vigoliumDir, err := vigoliumStateDir()
 	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+		return err
 	}
-
-	vigoliumDir := filepath.Join(homeDir, ".vigolium")
 	settingsPath := filepath.Join(vigoliumDir, settingsFileName)
 
 	_, statErr := os.Stat(settingsPath)

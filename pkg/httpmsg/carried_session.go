@@ -60,6 +60,10 @@ type CarriedSession struct {
 	// UserAgent is the browser User-Agent to pin on downstream requests. Empty
 	// means "leave the configured User-Agent alone".
 	UserAgent string
+	// BrowserUserAgent is the User-Agent the harvesting browser presented,
+	// recorded for a caller that replays the cookies itself (an edge clearance
+	// is bound to it). Never applied to a request; UserAgent is what is pinned.
+	BrowserUserAgent string
 	// AuthorizationHeader is a token-based session credential (e.g. "Bearer <jwt>")
 	// harvested from the crawl's authenticated traffic. Token-based SPAs (Juice
 	// Shop, most JWT apps) keep the session in localStorage and send it as an

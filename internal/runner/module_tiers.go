@@ -44,6 +44,63 @@ func scanTierCeiling(opts *types.Options) int {
 	return intensityTierCeiling(opts.ScanningProfile)
 }
 
+// ValidateMaxModuleTier refuses a --max-module-tier or
+// dynamic-assessment.max_module_tier value that names no tier. Empty is valid
+// (no hard ceiling).
+func ValidateMaxModuleTier(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return nil
+	}
+	if _, ok := modules.TierRankByName(name); !ok {
+		return fmt.Errorf("max module tier %q: want light, moderate, heavy or intrusive", name)
+	}
+	return nil
+}
+
+// MaxModuleTierRank is maxModuleTierRank for the CLI's direct scan paths.
+func MaxModuleTierRank(opts *types.Options, settings *config.Settings) int {
+	return maxModuleTierRank(opts, settings)
+}
+
+// CapModulesAtTier drops every module above the hard tier ceiling rank (0: no
+// ceiling) and returns the ids it dropped, active then passive.
+func CapModulesAtTier(active []modules.ActiveModule, passive []modules.PassiveModule, rank int) ([]modules.ActiveModule, []modules.PassiveModule, []string) {
+	if rank <= 0 {
+		return active, passive, nil
+	}
+	active, capA := partitionModules(active, aboveTier[modules.ActiveModule](rank))
+	passive, capP := partitionModules(passive, aboveTier[modules.PassiveModule](rank))
+	return active, passive, append(capA, capP...)
+}
+
+// WithholdRiskHigh drops the risk:high modules from a broad selection, for the
+// direct scan paths that do not go through FilterModulesForRun.
+func WithholdRiskHigh(active []modules.ActiveModule, passive []modules.PassiveModule) ([]modules.ActiveModule, []modules.PassiveModule, []string) {
+	active, rA := partitionModules(active, isRiskHigh[modules.ActiveModule])
+	passive, rP := partitionModules(passive, isRiskHigh[modules.PassiveModule])
+	return active, passive, append(rA, rP...)
+}
+
+// maxModuleTierRank is the hard tier ceiling a scan runs under: the lower of
+// --max-module-tier and dynamic-assessment.max_module_tier, or 0 when neither
+// names a tier. Each source can only lower it, so a caller that pins the config
+// key cannot be widened by the flag.
+func maxModuleTierRank(opts *types.Options, settings *config.Settings) int {
+	rank := 0
+	lower := func(name string) {
+		if r, ok := modules.TierRankByName(name); ok && (rank == 0 || r < rank) {
+			rank = r
+		}
+	}
+	if opts != nil {
+		lower(opts.MaxModuleTier)
+	}
+	if settings != nil {
+		lower(settings.DynamicAssessment.MaxModuleTier)
+	}
+	return rank
+}
+
 func intensityTierCeiling(intensity string) int {
 	switch strings.ToLower(strings.TrimSpace(intensity)) {
 	case "quick", "lite":

@@ -93,6 +93,7 @@ func init() {
 	registerBridgeURLFlag(importCmd, &importBurpBridgeURL,
 		"Import live Burp/Caido proxy history from this loopback bridge URL into the database")
 	registerImportBridgeFilterFlags(importCmd.Flags())
+	registerImportTagRedactFlags(importCmd.Flags())
 	importCmd.Flags().BoolVar(&importIncludeScopes, "include-scopes", false,
 		"Store the scope rules of a JSONL source in the active project (they change what later scans may reach); skipped by default")
 	importCmd.Flags().BoolVar(&importSkipFindings, "skip-findings", false,
@@ -163,13 +164,21 @@ func runImport(cmd *cobra.Command, args []string) error {
 	if bridgeURL != "" && importSkipFindings {
 		return usageErrorf("--skip-findings applies only to a vigolium SQLite source; a bridge import carries no findings")
 	}
+	tagRedact, err := resolveImportTagRedact()
+	if err != nil {
+		return err
+	}
+	if bridgeURL != "" && tagRedact.active() {
+		return usageErrorf("%s apply to a path source (SQLite, JSONL, audit folder, archive), not to a --burp-bridge-url pull",
+			strings.Join(importTagRedactFlagNames(tagRedact), " and "))
+	}
+	importTagRedactOpts = tagRedact
 
 	// Gather every import source: positional paths plus any local files matched
 	// by --glob-db. Positional args are gcs://→gs:// normalized and deduped
 	// here so the destination DB, HasPrefix checks and StorageURL stay
 	// consistent regardless of ordering.
 	var sources []string
-	var err error
 	if bridgeURL == "" {
 		sources, err = gatherImportSources(args, globDB)
 		if err != nil {
@@ -377,12 +386,14 @@ func runImport(cmd *cobra.Command, args []string) error {
 	var jsonOut map[string]any
 	if globalJSON {
 		jsonOut = importResultJSON(label, summary)
+		tagRedact.addJSON(jsonOut, summary)
 		if multi {
 			jsonOut["sources"] = statuses
 			jsonOut["sources_failed"] = failedSources
 		}
 	} else {
 		printImportResult(label, summary)
+		tagRedact.print(summary)
 		if importDryRun {
 			fmt.Fprintf(os.Stderr, "%s Dry run: imported into a throwaway database; nothing was written to yours\n", terminal.InfoSymbol())
 		}
@@ -640,6 +651,10 @@ func warnMixedImportFormats(sources []string) []string {
 	return kinds
 }
 
+// importTagRedactOpts is this invocation's parsed --tag / --redact, applied to
+// every source importOneSource imports.
+var importTagRedactOpts importTagRedact
+
 // importOneSource resolves a single source (downloading gs:// inputs to a temp
 // file that is cleaned up before returning) and imports it into repo. Factored
 // out of runImport so the multi-source loop cleans up each source's temp file
@@ -668,6 +683,7 @@ func importOneSource(ctx context.Context, repo *database.Repository, src, projec
 		SkipFindings:       importSkipFindings,
 		Hosts:              hosts,
 	}
+	importTagRedactOpts.apply(&opts)
 	if importDryRun {
 		opts.SessionDirArchiver = nil // a dry run copies no session directory
 	}
@@ -812,6 +828,10 @@ func mergeResultJSON(srcPath string, s *database.MergeStats) map[string]any {
 		"projects_merged":        s.ProjectsMerged,
 		"finding_records_merged": s.FindingRecordsMerged,
 		"oast_merged":            s.OASTMerged,
+
+		// Source records the destination already held, skipped by uuid before
+		// their bodies were read: a re-import is a delta.
+		"records_skipped_present": s.RecordsSkippedPresent,
 	}
 }
 
@@ -906,7 +926,7 @@ func importFailedSuffix(failed int) string {
 // current one. The -j document is built by mergeResultJSON instead.
 func printMergeResult(srcPath string, s *database.MergeStats) {
 	fmt.Printf("%s Merged SQLite database %s\n", terminal.SuccessSymbol(), terminal.Cyan(srcPath))
-	fmt.Printf("  HTTP records: %d merged\n", s.RecordsMerged)
+	fmt.Printf("  HTTP records: %d merged, %d already present\n", s.RecordsMerged, s.RecordsSkippedPresent)
 	fmt.Printf("  Findings:     %d merged, %d duplicates skipped\n", s.FindingsMerged, s.FindingsDeduped)
 	if s.ScansMerged > 0 || s.AgenticScansMerged > 0 {
 		fmt.Printf("  Scans:        %d native, %d agentic\n", s.ScansMerged, s.AgenticScansMerged)

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/paths"
 )
 
 // SkillsDirEnv overrides the user-scope skills directory. When unset, the
@@ -17,7 +18,8 @@ import (
 const SkillsDirEnv = "VIGOLIUM_SKILLS_DIR"
 
 // UserSkillsDir resolves the user-scope skills directory: VIGOLIUM_SKILLS_DIR
-// (with ~ and env-var expansion) when set, else ~/.vigolium/skills. Both the
+// (with ~ and env-var expansion) when set, else ~/.vigolium/skills (under
+// VIGOLIUM_STATE_DIR when that is set). Both the
 // loader (read) and the init-time materializer (write) call this so the two
 // never diverge. Returns "" only if the home directory can't be resolved and
 // no override is set.
@@ -25,11 +27,7 @@ func UserSkillsDir() string {
 	if v := os.Getenv(SkillsDirEnv); v != "" {
 		return config.ExpandPath(v)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".vigolium", "skills")
+	return paths.VigoliumPath("skills")
 }
 
 // Project-scope skill subdirectories, relative to a project root. Single source

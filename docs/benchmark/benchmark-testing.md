@@ -63,7 +63,7 @@ Vigolium benchmarks against a diverse set of intentionally vulnerable applicatio
 |-------------|-----------|--------------------------|---------------|------|
 | **DVWA** | PHP / MySQL | SQLi, XSS (reflected + DOM), LFI, Command Injection, CRLF, CSRF | `vulnerables/web-dvwa:latest` | 80 |
 | **VAmPI** | Python / Flask | SQLi, NoSQLi, CORS, JWT, Mass Assignment, Info Disclosure | `erev0s/vampi:latest` | 5000 |
-| **Juice Shop** | Node.js / Angular | SQLi, XSS, Swagger exposure, JWT, CSRF, Info Disclosure | `bkimminich/juice-shop:latest` | 3000 |
+| **Juice Shop** | Node.js / Angular | SQLi, XSS, Swagger exposure, JWT, CSRF, Info Disclosure | `bkimminich/juice-shop:v20.4.0` | 3000 |
 | **crAPI** | Go + Python + Node.js microservices | OWASP API Top 10 (BOLA, BFLA, Mass Assignment, SSRF, SQLi, NoSQLi) | Docker Compose (10 services) | 8888 |
 | **OopsSec Store** | Next.js / SQLite | SQLi, XSS, SSRF, LFI, XXE, IDOR, CORS, CSRF, Open Redirect, File Upload | Built from source | 3000 |
 | **NextJS VulnExamples** | Next.js / PostgreSQL | Missing Authentication, Missing Authorization, Secrets Exposure, Stored XSS | Built from source | 3000 |
@@ -247,7 +247,7 @@ test/testdata/
 - **Docker images**: Pulled automatically on first run
   - `vulnerables/web-dvwa:latest`
   - `erev0s/vampi:latest`
-  - `bkimminich/juice-shop:latest`
+  - `bkimminich/juice-shop:v20.4.0`
 - **Docker Compose**: Required for apps that build from source (OopsSec Store, NextJS VulnExamples)
 
 ### crAPI Tests

@@ -1,6 +1,32 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "cli.schemaDDLView": {
+      "properties": {
+        "schema_version": {
+          "type": "integer"
+        },
+        "statements": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "schema_version",
+        "statements"
+      ]
+    },
     "cli.storageColumn": {
       "properties": {
         "name": {
@@ -98,6 +124,7 @@
             "not_ready",
             "out_of_scope",
             "output_too_large",
+            "pace_unsupported",
             "partial",
             "payload_too_large",
             "pdf_failed",
@@ -109,6 +136,7 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "refused_by_policy",
             "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
@@ -302,7 +330,15 @@
     },
     "items": {
       "items": {
-        "$ref": "#/$defs/cli.storageTable"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/cli.storageTable"
+          },
+          {
+            "$ref": "#/$defs/cli.schemaDDLView"
+          }
+        ],
+        "description": "The default row, or the row shape selected by: --ddl"
       },
       "type": "array"
     },

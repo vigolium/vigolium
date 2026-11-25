@@ -132,7 +132,7 @@ func TestMatchNotFoundAgainstStoredBaseline(t *testing.T) {
 	// The stored-record path agrees on the same responses.
 	list := t.TempDir() + "/urls.txt"
 	require.NoError(t, writeFile(list, f.srv.URL+"/no-such-page-xyz\n"+f.srv.URL+"/about\n"+f.srv.URL+"/missing.txt\n"))
-	code, stdout, stderr = runA3(t, home, "ingest", "-i", list, "-j")
+	code, stdout, stderr = runA3(t, home, "ingest", "-i", list, "--fetch-responses", "-j")
 	require.Equal(t, 0, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
 	code, stdout, stderr = runA3(t, home, "traffic", "-j", "--fields", "url,matches_not_found",
 		"--url", f.srv.URL+"/no-such-page-xyz", "--url", f.srv.URL+"/about", "--url", f.srv.URL+"/missing.txt")

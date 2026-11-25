@@ -1,0 +1,785 @@
+{
+  "description": "Conformance vectors for the declarative request transform. gimorra's evaluator (packages/validators/src/request-transform.ts) and vigolium's (pkg/requesttransform) both read this file in their tests: each vector is a transform, the keys and pinned values it evaluates under, a request in, and either the transformed request out (header names lowercased) or the refusal code both must answer.",
+  "version": 1,
+  "vectors": [
+    {
+      "name": "hmac-sha256 hex over method, target, ts, nonce and body; ts and nonce placed verbatim",
+      "transform": {
+        "id": "api-sign",
+        "applies": {
+          "host": "api.example.test",
+          "pathPrefix": "/v2/"
+        },
+        "ops": [
+          {
+            "op": "timestamp",
+            "name": "ts",
+            "unit": "s"
+          },
+          {
+            "op": "nonce",
+            "name": "n",
+            "length": 16,
+            "alphabet": "hex"
+          },
+          {
+            "op": "set-header",
+            "header": "X-Ts",
+            "value": "{{var:ts}}"
+          },
+          {
+            "op": "set-header",
+            "header": "X-Nonce",
+            "value": "{{var:n}}"
+          },
+          {
+            "op": "hmac-header",
+            "header": "X-Signature",
+            "alg": "sha256",
+            "key": {
+              "credential": "api-signing-key"
+            },
+            "over": [
+              "method",
+              "target",
+              "ts",
+              "nonce",
+              "body"
+            ],
+            "join": "\n",
+            "encoding": "hex"
+          }
+        ]
+      },
+      "keys": {
+        "api-signing-key": "s3cr3t-signing-key"
+      },
+      "now": 1700000000123,
+      "fixed": {
+        "n": "0123456789abcdef"
+      },
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/v2/orders?limit=5&page=2",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer tok-1"
+        },
+        "body": "{\"qty\":1}"
+      },
+      "expect": {
+        "method": "POST",
+        "url": "https://api.example.test/v2/orders?limit=5&page=2",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer tok-1",
+          "x-ts": "1700000000",
+          "x-nonce": "0123456789abcdef",
+          "x-signature": "0b26e144e1fff2857a3c8ad48109ac686274e4e13d6353b9341b7bc733d4a444"
+        },
+        "body": "{\"qty\":1}"
+      }
+    },
+    {
+      "name": "hmac-sha1 base64 with a prefix, a hex key, over the Authorization header and host",
+      "transform": {
+        "id": "auth-sign",
+        "applies": {
+          "host": "api.example.test"
+        },
+        "ops": [
+          {
+            "op": "timestamp",
+            "name": "t",
+            "unit": "ms"
+          },
+          {
+            "op": "set-header",
+            "header": "x-request-time",
+            "value": "{{var:t}}"
+          },
+          {
+            "op": "hmac-header",
+            "header": "X-Auth-Signature",
+            "alg": "sha1",
+            "key": {
+              "credential": "hexkey"
+            },
+            "keyEncoding": "hex",
+            "over": [
+              "host",
+              "header:authorization",
+              "ts"
+            ],
+            "join": "|",
+            "encoding": "base64",
+            "prefix": "HMAC ",
+            "name": "sig"
+          },
+          {
+            "op": "set-header",
+            "header": "X-Sig-Echo",
+            "value": "v1:{{var:sig}}"
+          }
+        ]
+      },
+      "keys": {
+        "hexkey": "00112233445566778899aabbccddeeff"
+      },
+      "now": 1700000000999,
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test:8443/profile",
+        "headers": {
+          "authorization": "Bearer abc.def.ghi"
+        }
+      },
+      "expect": {
+        "method": "GET",
+        "url": "https://api.example.test:8443/profile",
+        "headers": {
+          "authorization": "Bearer abc.def.ghi",
+          "x-request-time": "1700000000999",
+          "x-auth-signature": "HMAC Rt2gsReGcaThv2oBZNpa27uy+X8=",
+          "x-sig-echo": "v1:Rt2gsReGcaThv2oBZNpa27uy+X8="
+        }
+      }
+    },
+    {
+      "name": "md5 hash of a literal and the clock, last six characters, placed in the query beside existing params",
+      "transform": {
+        "id": "q-sign",
+        "applies": {
+          "host": "m.example.test"
+        },
+        "ops": [
+          {
+            "op": "timestamp",
+            "name": "ts",
+            "unit": "s"
+          },
+          {
+            "op": "hash",
+            "name": "h",
+            "alg": "md5",
+            "over": [
+              "literal:appid=42",
+              "path",
+              "query",
+              "ts"
+            ],
+            "join": "&",
+            "encoding": "hex"
+          },
+          {
+            "op": "truncate",
+            "name": "short",
+            "from": "h",
+            "length": 6
+          },
+          {
+            "op": "set-query",
+            "param": "t",
+            "value": "{{var:ts}}"
+          },
+          {
+            "op": "set-query",
+            "param": "sign",
+            "value": "{{var:short}}"
+          }
+        ]
+      },
+      "now": 1712345678000,
+      "request": {
+        "method": "GET",
+        "url": "https://m.example.test/api/item?id=7&sign=old#frag",
+        "headers": {}
+      },
+      "expect": {
+        "method": "GET",
+        "url": "https://m.example.test/api/item?id=7&sign=b20999&t=1712345678#frag",
+        "headers": {}
+      }
+    },
+    {
+      "name": "a composite template, a ms timestamp and an alnum nonce; set-query percent-encodes",
+      "transform": {
+        "id": "tmpl",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "timestamp",
+            "name": "ts",
+            "unit": "ms"
+          },
+          {
+            "op": "nonce",
+            "name": "n",
+            "length": 12,
+            "alphabet": "alnum"
+          },
+          {
+            "op": "set-header",
+            "header": "X-Client",
+            "value": "t={{var:ts}}, n={{nonce}}, m={{method}} {{path}}"
+          },
+          {
+            "op": "set-query",
+            "param": "q.x",
+            "value": "a b/c&d={{var:n}}"
+          }
+        ]
+      },
+      "now": 1699999999001,
+      "fixed": {
+        "n": "Ab3dEf9hIjK0"
+      },
+      "request": {
+        "method": "DELETE",
+        "url": "https://x.example.test/r/1",
+        "headers": {}
+      },
+      "expect": {
+        "method": "DELETE",
+        "url": "https://x.example.test/r/1?q.x=a%20b%2Fc%26d%3DAb3dEf9hIjK0",
+        "headers": {
+          "x-client": "t=1699999999001, n=Ab3dEf9hIjK0, m=DELETE /r/1"
+        }
+      }
+    },
+    {
+      "name": "sha512 base64url hash over the body, then a uuid nonce placed verbatim",
+      "transform": {
+        "id": "h512",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "nonce",
+            "name": "rid",
+            "alphabet": "uuid"
+          },
+          {
+            "op": "hash",
+            "name": "digest",
+            "alg": "sha512",
+            "over": [
+              "body"
+            ],
+            "encoding": "base64url"
+          },
+          {
+            "op": "set-header",
+            "header": "Digest",
+            "value": "SHA-512={{var:digest}}"
+          },
+          {
+            "op": "set-header",
+            "header": "X-Request-Id",
+            "value": "{{var:rid}}"
+          }
+        ]
+      },
+      "fixed": {
+        "rid": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+      },
+      "request": {
+        "method": "PUT",
+        "url": "https://x.example.test/doc",
+        "headers": {
+          "content-type": "text/plain"
+        },
+        "body": "hello, wörld"
+      },
+      "expect": {
+        "method": "PUT",
+        "url": "https://x.example.test/doc",
+        "headers": {
+          "content-type": "text/plain",
+          "digest": "SHA-512=28gphauALvaksa6r5_b1MWs17jaDuTtbvb2sKbkI0qxq1MAz0G-B7aamYTP3EXXbb6TdsutaoT0mSGvLwykoAg",
+          "x-request-id": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+        },
+        "body": "hello, wörld"
+      }
+    },
+    {
+      "name": "aes-256-gcm encrypted body in a JSON envelope, then an hmac over the ciphertext",
+      "transform": {
+        "id": "enc-gcm",
+        "applies": {
+          "host": "secure.example.test"
+        },
+        "ops": [
+          {
+            "op": "nonce",
+            "name": "iv",
+            "length": 24,
+            "alphabet": "hex"
+          },
+          {
+            "op": "encrypt-body",
+            "alg": "aes-256-gcm",
+            "key": {
+              "credential": "body-key"
+            },
+            "keyEncoding": "base64",
+            "iv": "iv",
+            "encoding": "base64",
+            "layout": "iv+ct+tag",
+            "envelope": "{\"data\":\"{{cipher}}\"}",
+            "contentType": "application/json"
+          },
+          {
+            "op": "hmac-header",
+            "header": "X-Body-Mac",
+            "alg": "sha256",
+            "key": {
+              "credential": "mac-key"
+            },
+            "over": [
+              "body"
+            ],
+            "encoding": "hex"
+          }
+        ]
+      },
+      "keys": {
+        "body-key": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+        "mac-key": "mac-secret"
+      },
+      "fixed": {
+        "iv": "000102030405060708090a0b"
+      },
+      "request": {
+        "method": "POST",
+        "url": "https://secure.example.test/api/transfer",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"to\":\"acct-9\",\"amount\":1}"
+      },
+      "expect": {
+        "method": "POST",
+        "url": "https://secure.example.test/api/transfer",
+        "headers": {
+          "content-type": "application/json",
+          "x-body-mac": "daf3c6bc6859dd5d4d8864aa2fd73aff9b9623c14b93f83bdc862ee6bdbe4420"
+        },
+        "body": "{\"data\":\"AAECAwQFBgcICQoLVsfPE/si8M3LvwWTSO39JodlbPJSyFaxEaHmfwTQyGeiVPCQQhn9u2n2\"}"
+      }
+    },
+    {
+      "name": "aes-128-cbc encrypted body, iv+ct layout, hex",
+      "transform": {
+        "id": "enc-cbc",
+        "applies": {
+          "host": "secure.example.test"
+        },
+        "ops": [
+          {
+            "op": "nonce",
+            "name": "iv",
+            "length": 32,
+            "alphabet": "hex"
+          },
+          {
+            "op": "encrypt-body",
+            "alg": "aes-128-cbc",
+            "key": {
+              "credential": "k16"
+            },
+            "iv": "iv",
+            "encoding": "hex",
+            "layout": "iv+ct"
+          }
+        ]
+      },
+      "keys": {
+        "k16": "0123456789abcdef"
+      },
+      "fixed": {
+        "iv": "f0e0d0c0b0a090807060504030201000"
+      },
+      "request": {
+        "method": "POST",
+        "url": "https://secure.example.test/x",
+        "headers": {},
+        "body": "plain body"
+      },
+      "expect": {
+        "method": "POST",
+        "url": "https://secure.example.test/x",
+        "headers": {},
+        "body": "f0e0d0c0b0a090807060504030201000282710b3c0cdabce32e22324dc6f8847"
+      }
+    },
+    {
+      "name": "the clock's last six digits - a predictable token's derived value",
+      "transform": {
+        "id": "otp",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "timestamp",
+            "name": "ts",
+            "unit": "s"
+          },
+          {
+            "op": "truncate",
+            "name": "code",
+            "from": "ts",
+            "length": 6
+          },
+          {
+            "op": "set-header",
+            "header": "X-Code",
+            "value": "{{var:code}}"
+          }
+        ]
+      },
+      "now": 1732445123456,
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "expect": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {
+          "x-code": "445123"
+        }
+      }
+    },
+    {
+      "name": "Host is a destination header",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "set-header",
+            "header": "Host",
+            "value": "evil.example"
+          }
+        ]
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "refusal": "destination-header"
+    },
+    {
+      "name": "x-forwarded-host is a destination header",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "hmac-header",
+            "header": "X-Forwarded-Host",
+            "alg": "sha256",
+            "key": {
+              "credential": "k"
+            },
+            "over": [
+              "method"
+            ],
+            "encoding": "hex"
+          }
+        ]
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "refusal": "destination-header"
+    },
+    {
+      "name": "an op outside the vocabulary",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "set-url",
+            "value": "https://evil.example/"
+          }
+        ]
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "refusal": "unknown-op"
+    },
+    {
+      "name": "an op that tries to carry a url",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "set-header",
+            "header": "X-A",
+            "value": "1",
+            "url": "https://evil.example/"
+          }
+        ]
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "refusal": "bad-shape"
+    },
+    {
+      "name": "a transform that tries to name a port",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "port": 8080,
+        "ops": [
+          {
+            "op": "set-header",
+            "header": "X-A",
+            "value": "1"
+          }
+        ]
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "refusal": "bad-shape"
+    },
+    {
+      "name": "a part outside the vocabulary",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "hash",
+            "name": "h",
+            "alg": "sha256",
+            "over": [
+              "cookies"
+            ],
+            "encoding": "hex"
+          }
+        ]
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "refusal": "unknown-part"
+    },
+    {
+      "name": "a var read before it is defined",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "set-header",
+            "header": "X-A",
+            "value": "{{var:later}}"
+          },
+          {
+            "op": "timestamp",
+            "name": "later",
+            "unit": "s"
+          }
+        ]
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "refusal": "unknown-var"
+    },
+    {
+      "name": "a stray brace in a template",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "set-header",
+            "header": "X-A",
+            "value": "{{method"
+          }
+        ]
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "refusal": "bad-template"
+    },
+    {
+      "name": "a key that is a value, not a reference",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "hmac-header",
+            "header": "X-S",
+            "alg": "sha256",
+            "key": {
+              "credential": "my secret key with spaces"
+            },
+            "over": [
+              "method"
+            ],
+            "encoding": "hex"
+          }
+        ]
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "refusal": "literal-key"
+    },
+    {
+      "name": "a key the store does not hold",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "hmac-header",
+            "header": "X-S",
+            "alg": "sha256",
+            "key": {
+              "credential": "absent"
+            },
+            "over": [
+              "method"
+            ],
+            "encoding": "hex"
+          }
+        ]
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.test/",
+        "headers": {}
+      },
+      "refusal": "key-unresolved"
+    },
+    {
+      "name": "an iv that is not the cipher's size",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "nonce",
+            "name": "iv",
+            "length": 16,
+            "alphabet": "hex"
+          },
+          {
+            "op": "encrypt-body",
+            "alg": "aes-256-gcm",
+            "key": {
+              "credential": "k"
+            },
+            "iv": "iv",
+            "encoding": "base64",
+            "layout": "iv+ct+tag"
+          }
+        ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "https://x.example.test/",
+        "headers": {},
+        "body": "x"
+      },
+      "refusal": "bad-iv"
+    },
+    {
+      "name": "a key of the wrong size for the cipher",
+      "transform": {
+        "id": "bad",
+        "applies": {
+          "host": "x.example.test"
+        },
+        "ops": [
+          {
+            "op": "nonce",
+            "name": "iv",
+            "length": 32,
+            "alphabet": "hex"
+          },
+          {
+            "op": "encrypt-body",
+            "alg": "aes-256-cbc",
+            "key": {
+              "credential": "short"
+            },
+            "iv": "iv",
+            "encoding": "base64",
+            "layout": "iv+ct"
+          }
+        ]
+      },
+      "keys": {
+        "short": "tooshort"
+      },
+      "fixed": {
+        "iv": "00000000000000000000000000000000"
+      },
+      "request": {
+        "method": "POST",
+        "url": "https://x.example.test/",
+        "headers": {},
+        "body": "x"
+      },
+      "refusal": "bad-key"
+    }
+  ]
+}

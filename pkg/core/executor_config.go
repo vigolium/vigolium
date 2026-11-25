@@ -53,6 +53,11 @@ type ExecutorConfig struct {
 	// "blocked:<reason>" on the record. Off for scans, where a block page is not
 	// the application's answer; an ingest asks for it with --keep-blocked.
 	KeepBlocked bool
+	// AllowWrites lets the executor send a stored request-only stub whose
+	// method is not GET/HEAD/OPTIONS. Off, such an item is refused before the
+	// send (SkipWriteTemplate): fetching its baseline would perform the write
+	// an ingested spec operation only describes. --allow-writes sets it.
+	AllowWrites bool
 	// NoRedirects stops the baseline fetch at the first response: a 3xx is
 	// stored as the answer. The fingerprint phase sets it — a 301 from
 	// /robots.txt to /login is itself the signal.

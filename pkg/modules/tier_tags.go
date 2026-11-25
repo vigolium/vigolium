@@ -86,6 +86,13 @@ func ModuleTierRank(tags []string) int {
 	return rank
 }
 
+// TierRankByName returns the rank of a tier tag (light, moderate, heavy,
+// intrusive), case-insensitively, and whether the name is one.
+func TierRankByName(name string) (int, bool) {
+	r, ok := tierRank[strings.ToLower(strings.TrimSpace(name))]
+	return r, ok
+}
+
 // Tier names ModuleTierName returns besides the tier tags.
 const TierNameNone = "none"
 

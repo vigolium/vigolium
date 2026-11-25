@@ -18,6 +18,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/core/egress"
+	"github.com/vigolium/vigolium/pkg/core/services"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -302,6 +303,9 @@ func runScanURLCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := admission.refuse(); err != nil {
+		return err
+	}
 
 	if scanDryRun {
 		return runLightweightDryRun(cmd, inputs)
@@ -505,7 +509,10 @@ func buildRequestFromFlags(target, method, body string, headers []string) (*http
 // returns WAF/CDN blocks, plus the proactive edge pre-arm unless
 // --no-waf-pacing. Without it the default edge pacing AND its disabling flag
 // would both be inert here.
-func setupScanHTTPStack(budget *egress.Budget) (*httpstack.Stack, error) {
+//
+// sendScope is the scope the requester enforces on every request and redirect
+// hop (nil under --ignore-scope).
+func setupScanHTTPStack(budget *egress.Budget, sendScope services.SendScope) (*httpstack.Stack, error) {
 	opts := types.DefaultOptions()
 	globalFlagsToOptions(opts)
 	if globalNoClustering {
@@ -513,7 +520,7 @@ func setupScanHTTPStack(budget *egress.Budget) (*httpstack.Stack, error) {
 	}
 	// The direct path is a dynamic-assessment pass, which has no phase-local
 	// rate: the scan-wide --rate-limit is the cap, as it is on the Runner path.
-	return httpstack.New(httpstack.Config{Options: opts, WafPacing: true, Budget: budget, RateLimit: float64(max(opts.RateLimit, 0))})
+	return httpstack.New(httpstack.Config{Options: opts, WafPacing: true, Budget: budget, RateLimit: float64(max(opts.RateLimit, 0)), SendScope: sendScope})
 }
 
 // getFilteredModules returns active and passive modules based on CLI flags.
@@ -532,11 +539,23 @@ func getFilteredModules(moduleIDs []string, noPassive bool) ([]modules.ActiveMod
 	// Layer --module-id / --passive-only / --no-passive on top.
 	applyModuleSelectionOverrides(&activeIDs, &passiveIDs, noPassive)
 
-	// Note: this direct single-request path deliberately does not apply the config
-	// enabled_modules allowlist or the intensity-tier ceiling — those narrow the
-	// pipeline path in the runner's getModulesToExecute; a direct scan-url/-request
-	// runs the resolved sentinel selection as-is.
+	// This direct single-request path does not apply the config enabled_modules
+	// allowlist or the intensity-tier ceiling — those narrow the pipeline path in
+	// the runner's getModulesToExecute. Its caller applies the risk:high gate to
+	// a broad selection and the hard tier ceiling to every selection.
 	return selectModulesByIDs(activeIDs, passiveIDs)
+}
+
+// broadModuleSelection reports whether -m / --module-tag / --module-id left the
+// selection at every module (nothing named), the case the risk:high gate narrows.
+func broadModuleSelection(moduleIDs []string) bool {
+	if len(globalModuleIDs) > 0 {
+		return false
+	}
+	if len(moduleIDs) == 0 {
+		return true
+	}
+	return len(moduleIDs) == 1 && moduleIDs[0] == "all"
 }
 
 // colorStreamingModuleType returns the module-type colored for the streaming
@@ -761,7 +780,11 @@ func executeDirectScan(ctx context.Context, sess *directScanSession, rr *httpmsg
 	}
 
 	// Set up HTTP stack
-	stack, err := setupScanHTTPStack(sess.budget)
+	var sendScope services.SendScope
+	if m := sess.admission.scopeMatcher(); m != nil {
+		sendScope = m
+	}
+	stack, err := setupScanHTTPStack(sess.budget, sendScope)
 	if err != nil {
 		return nil, err
 	}
@@ -785,6 +808,26 @@ func executeDirectScan(ctx context.Context, sess *directScanSession, rr *httpmsg
 
 	// Get modules
 	active, passive := getFilteredModules(resolvedModules, scanURLNoPassive)
+	// A broad selection withholds risk:high modules below the opt-in, as the
+	// Runner path does; the hard tier ceiling binds every selection.
+	if broadModuleSelection(resolvedModules) && !runner.RiskyPayloadsAllowed(&types.Options{AllowRiskyPayloads: scanOpts.AllowRiskyPayloads}, settings) {
+		var withheld []string
+		active, passive, withheld = runner.WithholdRiskHigh(active, passive)
+		if len(withheld) > 0 && !globalSilent && !globalJSON {
+			fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.InfoSymbol(),
+				terminal.Gray(fmt.Sprintf("risk:high modules withheld (--allow-risky-payloads runs them): %s", strings.Join(withheld, ", "))))
+		}
+	}
+	if err := runner.ValidateMaxModuleTier(settings.DynamicAssessment.MaxModuleTier); err != nil {
+		return nil, asUsageError(fmt.Errorf("dynamic-assessment.max_module_tier: %w", err))
+	}
+	var capped []string
+	active, passive, capped = runner.CapModulesAtTier(active, passive,
+		runner.MaxModuleTierRank(&types.Options{MaxModuleTier: scanOpts.MaxModuleTier}, settings))
+	if len(capped) > 0 && !globalSilent && !globalJSON {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.InfoSymbol(),
+			terminal.Gray(fmt.Sprintf("above the max module tier, not run: %s", strings.Join(capped, ", "))))
+	}
 	if len(active)+len(passive) == 0 {
 		if err := emptyModuleSelectionError(); err != nil {
 			return nil, err
@@ -842,6 +885,7 @@ func executeDirectScan(ctx context.Context, sess *directScanSession, rr *httpmsg
 		// as on the runner path (--intensity takes the runner path).
 		AllowRiskyPayloads: runner.RiskyPayloadsAllowed(&types.Options{AllowRiskyPayloads: scanOpts.AllowRiskyPayloads}, settings),
 		NoParamDedup:       scanOpts.NoParamDedup,
+		AllowWrites:        scanOpts.AllowWrites,
 		OnResult: func(result *output.ResultEvent) {
 			mu.Lock()
 			findings = append(findings, result)
@@ -1017,6 +1061,8 @@ func buildPhaseOptions(target string) (*types.Options, error) {
 	// --passive-only / --no-passive overrides.
 	applyModuleSelection(opts, scanURLNoPassive)
 	opts.AllowRiskyPayloads = scanOpts.AllowRiskyPayloads
+	opts.AllowWrites = scanOpts.AllowWrites
+	opts.CallerTags = callerTags
 	opts.NoParamDedup = scanOpts.NoParamDedup
 	opts.MaxRequests = scanOpts.MaxRequests
 	opts.MaxRequestsPerHost = scanOpts.MaxRequestsPerHost

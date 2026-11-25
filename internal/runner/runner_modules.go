@@ -465,6 +465,7 @@ func (r *Runner) getModulesToExecute() ([]modules.ActiveModule, []modules.Passiv
 	logRiskWithheld(intensity, "Passive", sel.passiveRisk)
 	logHygieneSuppressed(intensity, "Active", sel.activeHygiene)
 	logHygieneSuppressed(intensity, "Passive", sel.passiveHygiene)
+	r.noteModuleGates(sel)
 	if len(sel.Active) > 0 {
 		zap.L().Info("Active modules to execute", zap.Int("count", len(sel.Active)))
 	}
@@ -472,6 +473,33 @@ func (r *Runner) getModulesToExecute() ([]modules.ActiveModule, []modules.Passiv
 		zap.L().Info("Passive modules to execute", zap.Int("count", len(sel.Passive)))
 	}
 	return sel.Active, sel.Passive
+}
+
+// noteModuleGates records, on the running phase, the capabilities the module
+// selection switched off and the module ids each removed: the hard tier cap
+// (module_tier_capped) and the risk:high withholding (risky_payloads_disabled).
+// Notes, not reasons: the run did what it was configured to do, and the caveat
+// says what that left out.
+func (r *Runner) noteModuleGates(sel ModuleSelection) {
+	t := r.currentPhase.Load()
+	if len(sel.TierCapped) > 0 {
+		t.noteCaveatModules(database.LimitModuleTierCapped, sel.TierCapped)
+	}
+	if len(sel.RiskWithheld) > 0 {
+		t.noteCaveatModules(database.LimitRiskyPayloadsDisabled, sel.RiskWithheld)
+	}
+}
+
+// noteOASTDisabled records oast_disabled on the running (dynamic-assessment)
+// phase when OAST is off by configuration or --offline. The note names no
+// modules: which checks plant an out-of-band payload is not declared on the
+// modules (the "oast" tag marks only some of the modules that mint OAST
+// URLs), and a list that names some of them would read as all of them.
+func (r *Runner) noteOASTDisabled() {
+	if r.settings == nil || r.settings.OAST.Enabled {
+		return
+	}
+	r.currentPhase.Load().noteCaveat(database.LimitOASTDisabled)
 }
 
 func sortActiveModulesByPriority(mods []modules.ActiveModule) {

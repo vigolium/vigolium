@@ -535,7 +535,7 @@ vigolium ingest -s http://localhost:9002 -I openapi -i spec.yaml
 > Store request-only records, don't make network requests
 ```
 ```bash
-vigolium ingest -t https://example.com -I burp -i export.xml --disable-fetch-response
+vigolium ingest -t https://example.com -I burp -i export.xml
 ```
 
 ---

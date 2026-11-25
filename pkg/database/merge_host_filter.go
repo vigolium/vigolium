@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -45,26 +46,16 @@ func (m mergeHostFilter) active() bool { return len(m) > 0 }
 // is a bound parameter; only the column names, which are constants at the call
 // sites, are interpolated.
 func (m mergeHostFilter) sqlPredicate(hostCol, portCol, schemeCol string) (string, []any) {
+	hostCol = "LOWER(" + hostCol + ")"
+	if schemeCol != "" {
+		schemeCol = "LOWER(" + schemeCol + ")"
+	}
 	ors := make([]string, 0, len(m))
 	var args []any
 	for _, h := range m {
-		var parts []string
-		if h.Glob() {
-			parts = append(parts, "LOWER("+hostCol+") LIKE ?"+likeEscapeClause)
-			args = append(args, LikeGlob(h.Host))
-		} else {
-			parts = append(parts, "LOWER("+hostCol+") = ?")
-			args = append(args, h.Host)
-		}
-		if h.Port != 0 && portCol != "" {
-			parts = append(parts, portCol+" = ?")
-			args = append(args, h.Port)
-		}
-		if h.Scheme != "" && schemeCol != "" {
-			parts = append(parts, "LOWER("+schemeCol+") = ?")
-			args = append(args, h.Scheme)
-		}
-		ors = append(ors, "("+strings.Join(parts, " AND ")+")")
+		pred, a := h.predicate(hostCol, portCol, schemeCol)
+		ors = append(ors, "("+pred+")")
+		args = append(args, a...)
 	}
 	return strings.Join(ors, " OR "), args
 }
@@ -225,10 +216,6 @@ func sqlText(v any) string {
 	}
 }
 
-// mergeKeyChunk bounds the IN list of one keyed copy statement, well under
-// SQLite's bound-parameter limit.
-const mergeKeyChunk = 500
-
 // copyTableWhere copies src.<table> into main.<table> set-based with OR IGNORE,
 // narrowed by where (all rows when empty). table and cols come from the
 // mergeCopyTables allowlist and the schemas' own column lists; the predicate's
@@ -250,8 +237,7 @@ func copyTableWhere(ctx context.Context, tx *sql.Tx, table string, cols []string
 // copyTableKeys copies the src.<table> rows whose keyCol is in keys, in chunks.
 func copyTableKeys(ctx context.Context, tx *sql.Tx, table string, cols []string, keyCol string, keys []any) (int64, error) {
 	var total int64
-	for start := 0; start < len(keys); start += mergeKeyChunk {
-		chunk := keys[start:min(start+mergeKeyChunk, len(keys))]
+	for chunk := range slices.Chunk(keys, SQLChunkSize) {
 		in := strings.TrimSuffix(strings.Repeat("?, ", len(chunk)), ", ")
 		n, err := copyTableWhere(ctx, tx, table, cols, keyCol+" IN ("+in+")", chunk)
 		if err != nil {

@@ -573,7 +573,7 @@
         "phase",
         "status"
       ],
-      "description": "A phase ended. status: completed, curtailed or failed; reasons are defects, limits configured bounds reached."
+      "description": "A phase ended. status: completed (it did work), curtailed, failed or skipped (it did none; reasons say why, e.g. no_modules or no_inputs); reasons are defects, limits configured bounds reached."
     },
     "event.phase.progress": {
       "properties": {
@@ -787,6 +787,12 @@
           },
           "type": "array"
         },
+        "module_stats": {
+          "additionalProperties": {
+            "$ref": "#/$defs/scanevents.ModuleStat"
+          },
+          "type": "object"
+        },
         "findings_by_severity": {
           "additionalProperties": {
             "type": "integer"
@@ -978,6 +984,12 @@
           },
           "type": "object"
         },
+        "pace_ignored": {
+          "items": {
+            "$ref": "#/$defs/scanevents.PaceIgnored"
+          },
+          "type": "array"
+        },
         "targets_admitted": {
           "type": "integer"
         },
@@ -986,6 +998,12 @@
         },
         "budgets": {
           "$ref": "#/$defs/scanevents.Budgets"
+        },
+        "caller_tags": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
         },
         "request_cap_enforcement": {
           "additionalProperties": {
@@ -1035,6 +1053,12 @@
         "vendor": {
           "type": "string"
         },
+        "block_kind": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string"
+        },
         "status_code": {
           "type": "integer"
         },
@@ -1052,7 +1076,7 @@
         "type",
         "host"
       ],
-      "description": "The edge started filtering scan traffic for a host."
+      "description": "A host's traffic was first blocked or challenged, once per host whichever sender (transport requester|discovery|spider) met it. block_kind vendor|challenge names the edge in vendor; refused (the generic phrase rule alone) carries no vendor."
     },
     "event.waf.pacing": {
       "properties": {
@@ -1228,6 +1252,30 @@
         "path"
       ]
     },
+    "scanevents.ModuleStat": {
+      "properties": {
+        "invocations": {
+          "type": "integer"
+        },
+        "requests": {
+          "type": "integer"
+        },
+        "findings": {
+          "type": "integer"
+        },
+        "errors": {
+          "type": "integer"
+        },
+        "skips": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "scanevents.OASTSession": {
       "properties": {
         "id": {
@@ -1262,6 +1310,26 @@
         "rate_limit",
         "concurrency",
         "max_per_host"
+      ]
+    },
+    "scanevents.PaceIgnored": {
+      "properties": {
+        "phase": {
+          "type": "string"
+        },
+        "dial": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "phase",
+        "dial",
+        "source"
       ]
     },
     "scanevents.SkippedControl": {
@@ -1676,6 +1744,12 @@
         "tier_filtered": {
           "type": "integer"
         },
+        "max_module_tier": {
+          "type": "string"
+        },
+        "tier_capped": {
+          "type": "integer"
+        },
         "hygiene_suppressed": {
           "type": "integer"
         },
@@ -1722,6 +1796,7 @@
         "extensions",
         "tier_ceiling",
         "tier_filtered",
+        "tier_capped",
         "hygiene_suppressed",
         "risk_gated",
         "risky_payloads_allowed",

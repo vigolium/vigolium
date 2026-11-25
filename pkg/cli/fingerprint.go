@@ -9,6 +9,10 @@ import (
 // whose items are the origins it fingerprinted (the `vigolium hosts` view)
 // rather than findings.
 
+// fingerprintPhase is the one phase `fingerprint` runs, whatever --only,
+// --skip or --strategy the line passes (`schema commands -j` translates_to).
+const fingerprintPhase = "fingerprint"
+
 var fingerprintCmd = &cobra.Command{
 	Use:   "fingerprint [url ...]",
 	Short: "Fingerprint origins with a bounded set of reads and store the result as host facts",
@@ -33,7 +37,7 @@ way the -j document's items are the fingerprinted origins.`,
 		"  vigolium fingerprint -T hosts.txt --depth light -j --compact\n" +
 		"  vigolium fingerprint -t https://app.example --depth full",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		globalOnly = "fingerprint"
+		globalOnly = fingerprintPhase
 		return runScanCmd(cmd, args)
 	},
 }

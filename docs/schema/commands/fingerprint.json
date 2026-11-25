@@ -206,6 +206,7 @@
             "not_ready",
             "out_of_scope",
             "output_too_large",
+            "pace_unsupported",
             "partial",
             "payload_too_large",
             "pdf_failed",
@@ -217,6 +218,7 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "refused_by_policy",
             "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
@@ -390,6 +392,7 @@
             "not_ready",
             "out_of_scope",
             "output_too_large",
+            "pace_unsupported",
             "partial",
             "payload_too_large",
             "pdf_failed",
@@ -401,6 +404,7 @@
             "queue_full",
             "rate_limited",
             "record_not_found",
+            "refused_by_policy",
             "resume_mismatch",
             "scan_abandoned",
             "scan_not_found",
@@ -687,6 +691,18 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "note_modules": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        "explicit": {
+          "type": "boolean"
         },
         "errors": {
           "type": "integer"
@@ -1644,6 +1660,12 @@
         "tier_filtered": {
           "type": "integer"
         },
+        "max_module_tier": {
+          "type": "string"
+        },
+        "tier_capped": {
+          "type": "integer"
+        },
         "hygiene_suppressed": {
           "type": "integer"
         },
@@ -1690,6 +1712,7 @@
         "extensions",
         "tier_ceiling",
         "tier_filtered",
+        "tier_capped",
         "hygiene_suppressed",
         "risk_gated",
         "risky_payloads_allowed",

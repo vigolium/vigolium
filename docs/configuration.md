@@ -89,7 +89,8 @@ Higher-precedence sources override lower ones. Within the config file, environme
 | `VIGOLIUM_PROXY` | HTTP/SOCKS proxy URL, used when `--proxy` is not set; proxies every request like the flag. Without either, `HTTPS_PROXY`/`HTTP_PROXY` (by target scheme) and `ALL_PROXY` apply, minus `NO_PROXY` (host, `.domain`, IP, CIDR, `*`, optional `:port`); loopback is proxied unless `NO_PROXY` names it |
 | `VIGOLIUM_DEFAULT_UA` | Override the configured outbound User-Agent selector or value |
 | `VIGOLIUM_BURP_BRIDGE_URL` | Default loopback Burp bridge URL for bridge-aware commands |
-| `VIGOLIUM_HOME` | Base directory for Vigolium data (used by the installer; defaults to `~/.vigolium`) |
+| `VIGOLIUM_HOME` | Staging directory the install scripts use (defaults to `~/.vigolium`); the binary does not read it |
+| `VIGOLIUM_STATE_DIR` | Root of everything the binary writes. Set, what `~/.vigolium` holds (config, default database, presets, projects, `active-project`, `native-sessions/`, replay jars) lives directly under it, with `cache/` (Chrome for Testing and other caches), `nuclei-templates/` and `lib/` (the embedded nuclei/uncover libraries' config dirs) beside it, and nothing is written under `HOME` |
 | `VIGOLIUM_DISABLE_UPDATE_CHECK` | Set truthy to disable the periodic "new version available" check entirely |
 | `VIGOLIUM_AUTO_UPDATE` | Set truthy to update the binary in place and re-exec it when a newer release is detected (interactive terminals only; see [Update check](#update-check)) |
 | `VIGOLIUM_UPDATE_BASE_URL` | Release prefix `vigolium update` reads `metadata.json`, `checksums.txt` and its `.minisig` from (default `https://cdn.vigolium.com/vigolium-release`; https only). Signatures are still required |
@@ -820,7 +821,42 @@ scope:
   response_string:
     include: []
     exclude: []
+  cidr:                          # prefixes ("10.0.0.0/8") or bare addresses
+    include: []
+    exclude: []
+  port:                          # ports ("443") or ranges ("8000-8100")
+    include: []
+    exclude: []
 ```
+
+`scope.cidr` judges addresses: an IP-literal host inside an include prefix is
+in scope whatever `host.include` and the origin mode say (and, when
+`host.include` names no hosts, an IP literal must be inside it); exclude
+refuses an IP-literal host and every address a hostname resolves to. It does
+not narrow hostnames. `scope.port` judges the destination port (a URL without
+one: its scheme's default).
+
+Every command checks the scope before it sends anything. `scan`, `scan-url`,
+`scan-request` and every sender (`fuzz`, `replay`, `dns`, `kit param-mine`,
+`kit unlock-walk`, `kit h2-probe`, `finding verify`) exit 2 `out_of_scope`
+when a target is refused, and with `VIGOLIUM_REQUIRE_SCOPE=1` when the scope
+names no hosts. The requester then judges every request and every redirect hop
+at send time: the host rule, `scope.port`, `scope.path.exclude` (the include
+side narrows what is scanned, not what a module may ask for), `scope.cidr`, and
+two address blocks over the addresses the host resolves to:
+
+- the cloud instance-metadata endpoints (`169.254.169.254`, `fd00:ec2::254`,
+  `metadata.google.internal`) are refused under any scope unless a literal
+  `host.include` entry or a `cidr.include` prefix names them;
+- private, loopback, link-local and CGNAT addresses are refused under a scope
+  that names hosts (or addresses) unless a literal `host.include` entry, a CLI
+  target or a `cidr.include` prefix names the host or the address — a lab on
+  `-t http://127.0.0.1:3000` keeps working, a discovered name resolving to
+  `10.0.0.5` does not.
+
+`fuzz --resolve host:port:addr` addresses are judged the same way. The OAST
+client and authentication login flows (which may visit an identity provider
+outside the scope) are not judged.
 
 ### `server`
 

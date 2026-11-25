@@ -69,10 +69,14 @@ func NewExtractor(config *Config) (*Extractor, error) {
 }
 
 // resolveCacheDir returns the cache directory path.
-// Uses ~/.cache/jstangle/ by default.
+// Uses the user cache dir's jstangle/ by default, and
+// $VIGOLIUM_STATE_DIR/cache/jstangle/ when that is set.
 func resolveCacheDir(override string) (string, error) {
 	if override != "" {
 		return override, nil
+	}
+	if paths.StateDirSet() {
+		return paths.UserCacheDir(DefaultCacheSubdir), nil
 	}
 
 	cacheBase, err := os.UserCacheDir()

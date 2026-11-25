@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -25,12 +25,10 @@ func newCleanCmd(deps Deps, example string) *cobra.Command {
 }
 
 func runConfigClean(cmd *cobra.Command, deps Deps) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+	vigoliumDir := paths.VigoliumDir()
+	if vigoliumDir == "" {
+		return fmt.Errorf("failed to resolve the state directory: no home directory and %s is unset", paths.StateDirEnv)
 	}
-
-	vigoliumDir := filepath.Join(homeDir, ".vigolium")
 
 	displayDir := config.ContractPath(vigoliumDir)
 

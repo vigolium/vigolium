@@ -102,6 +102,12 @@
     "description": "Endpoints (origin + path template) aggregated from stored traffic."
   },
   {
+    "name": "explain-argv",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One command line resolved without running it: command (canonical path), phase (run's canonical phase), translated_from (a shim), parses and error, sends_traffic, targets {value, kind, from}, reach and reach_by, pinned, refusals and hint."
+  },
+  {
     "name": "export",
     "kind": "command",
     "envelope_kind": "read",
@@ -226,6 +232,12 @@
     "kind": "command",
     "envelope_kind": "read",
     "description": "The browser profiles on this machine, each with the label the user sees alongside its directory name, and whether its store is App-Bound encrypted or holds unflushed writes."
+  },
+  {
+    "name": "kit h2-probe",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One hand-framed HTTP/2 request: what was sent (declared_content_length beside body_bytes, open_stream) and the answer — status, reset_code or goaway_code — or timed_out, with elapsed_ms from the last frame written."
   },
   {
     "name": "kit js-beautify",
@@ -354,6 +366,12 @@
     "description": "The scan document: one document per invocation, items are finding views."
   },
   {
+    "name": "scan coverage",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "A scan's coverage ledger as (record, module) cells: done is true when the module finished on the record; -n/--offset page the cells."
+  },
+  {
     "name": "scan diff",
     "kind": "command",
     "envelope_kind": "read",
@@ -396,16 +414,28 @@
     "description": "The scan document: one document per invocation, items are finding views."
   },
   {
+    "name": "schema block-signatures",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One row per block-classifier signature: id (stable), vendor, kind (challenge, block, refused, presence), match {status, header, header_op, header_values, body_op, body, body_max_bytes, content_type} and requires (any-of row ids)."
+  },
+  {
     "name": "schema commands",
     "kind": "command",
     "envelope_kind": "read",
-    "description": "One row per command: kind, db (none/read/write), reads_store, mutates, writes_global, sends_traffic, read_only_flag and value_flags; global_value_flags are the root's."
+    "description": "One row per command: kind, db (none/read/write), reads_store, mutates, writes_global, sends_traffic, read_only_flag, value_flags, aliases (every other spelling, `run \u003cphase\u003e` included), targets (the flag or positional naming a target, and its kind: url, host, file, input, record_uuid, scan_uuid, finding_id), reach (none, line, store, unbounded), reach_flags (each set flag replaces the reach, in order), pipeline (full or single-request, on the commands that run the scan pipeline) and translates_to (the native lines a shim or phase front door runs as); global_value_flags are the root's, global_reach_flags apply to every command."
   },
   {
     "name": "schema flags",
     "kind": "command",
     "envelope_kind": "read",
     "description": "One command's flags (for_command): name, shorthand, type, default, description, inherited."
+  },
+  {
+    "name": "schema pace",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Every (phase, dial) pace pair and whether the phase enforces it; a command-line pair it does not is refused (pace_unsupported)."
   },
   {
     "name": "schema storage",
@@ -486,6 +516,12 @@
     "description": "One stored message's headers as an ordered array (repeated headers kept)."
   },
   {
+    "name": "traffic request",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One stored request whole: method, url, the raw request-target, ordered headers, the body (gzip decoded; base64 when not UTF-8) and whether it is complete."
+  },
+  {
     "name": "scan.started",
     "kind": "event",
     "description": "First line of every stream: what the scan will run, against what, at what pace and budget."
@@ -513,12 +549,12 @@
   {
     "name": "phase.finished",
     "kind": "event",
-    "description": "A phase ended. status: completed, curtailed or failed; reasons are defects, limits configured bounds reached."
+    "description": "A phase ended. status: completed (it did work), curtailed, failed or skipped (it did none; reasons say why, e.g. no_modules or no_inputs); reasons are defects, limits configured bounds reached."
   },
   {
     "name": "waf.block",
     "kind": "event",
-    "description": "The edge started filtering scan traffic for a host."
+    "description": "A host's traffic was first blocked or challenged, once per host whichever sender (transport requester|discovery|spider) met it. block_kind vendor|challenge names the edge in vendor; refused (the generic phrase rule alone) carries no vendor."
   },
   {
     "name": "waf.pacing",
@@ -601,6 +637,11 @@
     "description": "The resolved scan plan: phases with disabled_by, budgets, modules, scope, auth names, target admission and a rough request estimate. Printed by scan --dry-run, carried by the scan.plan event, stored on scans.plan."
   },
   {
+    "name": "proof",
+    "kind": "document",
+    "description": "A finding's proof recipe (finding -j proof): the attack request, a control differing only in the value at the insertion point (or baseline_record_uuid), a closed-set oracle over the two responses, and preconditions. {{marker}} in payload_template, url, headers, body and oracle value is where the caller substitutes its own minted marker. Oracles: body_contains (attack body has value, control's does not), body_absent (the reverse), status_differs, header_contains (header has value on the attack only), timing_delta (attack slower by min_delta_ms in each of repeat rounds), oast_interaction (the caller's collector sees the attack's callback), body_similarity (bodies less similar than threshold). Headers never carry credentials, Host or Content-Length."
+  },
+  {
     "name": "scan-dry-run",
     "kind": "document",
     "description": "The scan --dry-run / run \u003cphase\u003e --dry-run -j document: items are the plan's phases, plan the full plan, dry_run true."
@@ -608,6 +649,6 @@
   {
     "name": "unlock-profile",
     "kind": "document",
-    "description": "The kit unlock-walk --profile input: origin, localStorage/sessionStorage seeds, cookies, response stubs (same-origin, 2xx/4xx/5xx, body up to 64 KiB) and routes (maxRoutes default 40, at most 200; settleMs default 2500, at most 10000)."
+    "description": "The kit unlock-walk --profile input: origin, localStorage/sessionStorage seeds, cookies, response stubs (same-origin, 2xx/4xx/5xx, body up to 64 KiB), rewrites of real same-origin answers (status 2xx/4xx/5xx and/or up to 20 RFC 6901 pointer sets, values up to 64 KiB; never stored as evidence), routes (maxRoutes default 40, at most 200; settleMs default 2500, at most 10000) and maxClicksPerRoute (default 6, at most 30, 0 off)."
   }
 ]

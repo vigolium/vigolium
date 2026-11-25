@@ -17,6 +17,7 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/uptrace/bun/driver/sqliteshim"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/utils"
 	"go.uber.org/zap"
 )
@@ -931,6 +932,9 @@ func (db *DB) renderDDL(tmpl string) string {
 //	   Later additive, nullable columns arrived without a bump (column
 //	   migrations run on every open): scans.stop_requested_at/by and
 //	   agentic_scans.cancel_requested_at (stop requests, stop_requests.go).
+//	   So did the websocket_frames table (the browser crawl's WebSocket frames,
+//	   websocket_frames.go): a new table is created on every open like a
+//	   column migration, and no reader of an older store depends on it.
 const currentSchemaVersion = 6
 
 // legacyBackfillsVersion is the version that gated the pre-versioning backfills
@@ -1420,6 +1424,13 @@ func (db *DB) EnsureSchemaCurrent(ctx context.Context) error {
 	if err == nil && len(missing) == 0 {
 		return nil
 	}
+	if err == nil {
+		// An initialized store that is behind: migrating it is the caller's
+		// decision (see refuseImplicitMigration), not this open's.
+		if refusal := db.refuseImplicitMigration(ctx, missing); refusal != nil {
+			return refusal
+		}
+	}
 	return db.CreateSchema(ctx)
 }
 
@@ -1454,7 +1465,7 @@ func (db *DB) checkSchemaCurrent(ctx context.Context) error {
 		return nil
 	}
 	if db.reader {
-		return &SchemaOutdatedError{DBVersion: db.schemaVersion(ctx), Missing: missing}
+		return &SchemaOutdatedError{DBVersion: db.schemaVersion(ctx), Missing: missing, Path: db.path}
 	}
 	return fmt.Errorf("%w and --read-only cannot migrate it (missing: %s)\n"+
 		"  drop --read-only to upgrade it in place, or copy the file first if it must not change",
@@ -1517,10 +1528,12 @@ func (db *DB) tableExists(ctx context.Context, table string) bool {
 	return err == nil
 }
 
-// expandPath handles ~ expansion and environment variables
+// expandPath handles ~ expansion and environment variables; the default
+// ~/.vigolium database lands under VIGOLIUM_STATE_DIR when that is set
+// (paths.Relocate).
 func expandPath(path string) string {
 	// Expand environment variables
-	path = expandEnvVars(path)
+	path = paths.Relocate(expandEnvVars(path))
 
 	// Expand ~ to home directory
 	if strings.HasPrefix(path, "~/") {

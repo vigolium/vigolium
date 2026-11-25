@@ -85,28 +85,56 @@ var platforms = map[string]platformInfo{
 	"windows_386":   {Key: "win32", BinPath: "chrome-win32/chrome.exe"},
 }
 
+// hostPlatform is the GOOS_GOARCH key the platform table is read with. A
+// variable so tests can stand in for a host with no CfT build (linux/arm64).
+var hostPlatform = func() string { return runtime.GOOS + "_" + runtime.GOARCH }
+
+// lookPath resolves a system browser on PATH; replaceable in tests.
+var lookPath = exec.LookPath
+
 // IsSupported returns true if the current OS/arch has Chrome for Testing builds.
 func IsSupported() bool {
-	_, ok := platforms[runtime.GOOS+"_"+runtime.GOARCH]
+	_, ok := platforms[hostPlatform()]
 	return ok
 }
 
 // PlatformKey returns the CfT platform string for the current OS/arch.
 func PlatformKey() (string, error) {
-	p, ok := platforms[runtime.GOOS+"_"+runtime.GOARCH]
+	p, ok := platforms[hostPlatform()]
 	if !ok {
-		return "", fmt.Errorf("chrome for testing is not available for %s/%s", runtime.GOOS, runtime.GOARCH)
+		return "", fmt.Errorf("chrome for testing is not available for %s", Platform())
 	}
 	return p.Key, nil
 }
 
-// cacheRoot returns ~/.cache/vigolium/.
-func cacheRoot() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home dir: %w", err)
+// Platform names the host as "goos/goarch", the spelling messages use.
+func Platform() string { return strings.ReplaceAll(hostPlatform(), "_", "/") }
+
+// SystemChromiumNames is the order a system browser is looked up on PATH on a
+// platform Chrome for Testing publishes no build for (linux/arm64): Chromium
+// under its upstream and its Debian/Ubuntu names, then Google Chrome.
+var SystemChromiumNames = []string{"chromium", "chromium-browser", "google-chrome"}
+
+// SystemChromium resolves the first of SystemChromiumNames on PATH and
+// returns its path and the name that matched. The error names the lookup
+// order when none resolves.
+func SystemChromium() (path, name string, err error) {
+	for _, n := range SystemChromiumNames {
+		if p, lerr := lookPath(n); lerr == nil {
+			return p, n, nil
+		}
 	}
-	return filepath.Join(home, ".cache", "vigolium"), nil
+	return "", "", fmt.Errorf("no system Chromium on PATH (looked up %s in that order)", strings.Join(SystemChromiumNames, ", "))
+}
+
+// cacheRoot returns the Chrome for Testing cache root: ~/.cache/vigolium/, or
+// $VIGOLIUM_STATE_DIR/cache/vigolium/ when that is set.
+func cacheRoot() (string, error) {
+	root := paths.UserCacheDir("vigolium")
+	if root == "" {
+		return "", fmt.Errorf("failed to resolve the cache directory: no home directory and no %s", paths.StateDirEnv)
+	}
+	return root, nil
 }
 
 // versionDir returns the cache directory for a specific CfT version.
@@ -124,9 +152,9 @@ func binPathForVersion(version string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p, ok := platforms[runtime.GOOS+"_"+runtime.GOARCH]
+	p, ok := platforms[hostPlatform()]
 	if !ok {
-		return "", fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
+		return "", fmt.Errorf("unsupported platform: %s", Platform())
 	}
 	return filepath.Join(dir, filepath.FromSlash(p.BinPath)), nil
 }
@@ -135,7 +163,7 @@ func binPathForVersion(version string) (string, error) {
 // without making any network requests. Returns the binary path or an error.
 func FindCachedBrowser() (string, error) {
 	if !IsSupported() {
-		return "", fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
+		return "", fmt.Errorf("unsupported platform: %s", Platform())
 	}
 
 	root, err := cacheRoot()
@@ -154,7 +182,7 @@ func FindCachedBrowser() (string, error) {
 	// Sort descending so newest version is first.
 	sort.Sort(sort.Reverse(sort.StringSlice(matches)))
 
-	p := platforms[runtime.GOOS+"_"+runtime.GOARCH]
+	p := platforms[hostPlatform()]
 	for _, dir := range matches {
 		marker := filepath.Join(dir, ".extracted")
 		if _, err := os.Stat(marker); err != nil {
@@ -235,6 +263,11 @@ func fetchDownloadInfo(ctx context.Context) (version, downloadURL string, err er
 // EnsureBrowser downloads and caches Chrome for Testing if not already present.
 // Returns the path to the chrome binary.
 //
+// On a platform Chrome for Testing publishes no build for (linux/arm64) it
+// downloads nothing: it returns the system browser SystemChromium resolves,
+// logs which binary that is, and fails naming the lookup order when none is
+// installed.
+//
 // onProgress may be nil. Without it, progress is printed as text to
 // progressOut (stderr), never stdout — the `vigolium doctor --fix` rendering.
 // With it, the text is suppressed and the caller gets one started event, then
@@ -242,10 +275,16 @@ func fetchDownloadInfo(ctx context.Context) (version, downloadURL string, err er
 // owns the rendering.
 func EnsureBrowser(ctx context.Context, onProgress ProgressFunc) (string, error) {
 	if !IsSupported() {
-		return "", fmt.Errorf(
-			"chrome for Testing is not available for %s/%s — install Chromium manually (e.g. apt install chromium)",
-			runtime.GOOS, runtime.GOARCH,
-		)
+		bin, name, err := SystemChromium()
+		if err != nil {
+			return "", fmt.Errorf(
+				"chrome for Testing has no build for %s and %w — install Chromium (e.g. apt install chromium)",
+				Platform(), err,
+			)
+		}
+		zap.L().Info("Chrome for Testing has no build for this platform; using the system browser",
+			zap.String("platform", hostPlatform()), zap.String("binary", name), zap.String("path", bin))
+		return bin, nil
 	}
 	// A stateless (-S) run may use a cached browser but downloads nothing.
 	if paths.Stateless() {

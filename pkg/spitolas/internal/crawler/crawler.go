@@ -559,6 +559,8 @@ func (c *Crawler) Run(ctx context.Context) (*Result, error) {
 		capture.OnResponse = c.observeAuthResponse
 		c.watchAuthChanges(ctx, mon)
 	}
+	// Classify the same responses for edge blocks and challenge pages.
+	capture.OnBlock = c.config.OnBlock
 	// A finished crawl is not failed over a flush error: the capture close
 	// error is the writer's drop tally, which the caller reads from the
 	// writer's receipt. Logged so it is never silent.

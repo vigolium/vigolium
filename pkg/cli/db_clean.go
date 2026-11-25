@@ -49,6 +49,7 @@ var (
 	cleanOrphans  bool
 	cleanFindings bool
 	cleanTable    string
+	cleanTags     []string
 	resetDryRun   bool
 )
 
@@ -62,6 +63,7 @@ func init() {
 	dbCleanCmd.Flags().StringVar(&cleanScanUUID, "scan-uuid", "", "Delete records belonging to the specified scan UUID")
 	dbCleanCmd.Flags().StringVar(&cleanBefore, "before", "", fmt.Sprintf("Delete records created strictly before this time — %s (the named day itself is kept)", clicommon.TimeFilterSyntax))
 	dbCleanCmd.Flags().IntSliceVar(&cleanStatus, "status", nil, "Delete records with matching HTTP status codes")
+	dbCleanCmd.Flags().StringArrayVar(&cleanTags, "tag", nil, "Delete records carrying this key=value label (written by 'import --tag'), their labels, and the findings only they evidence; repeatable, AND-combined")
 	dbCleanCmd.Flags().StringVar(&cleanSeverity, "severity", "", "Delete findings matching the specified severity level (findings only; HTTP records are kept)")
 
 	dbCleanCmd.Flags().BoolVar(&cleanDryRun, "dry-run", false, "Show what would be deleted without deleting")
@@ -229,10 +231,10 @@ func runDBClean(cmd *cobra.Command, args []string) error {
 	// --all --force deletes every row; `db reset --force` recreates the DB file.
 	noSelector := !cleanAll && cleanHost == "" && cleanScanUUID == "" && cleanBefore == "" &&
 		len(cleanStatus) == 0 && cleanSeverity == "" && !cleanOrphans && !cleanFindings &&
-		cleanTable == "" && dbSearch == ""
+		cleanTable == "" && dbSearch == "" && len(cleanTags) == 0
 	if noSelector {
 		return usageErrorf("no clean selector provided; narrow the delete with a filter " +
-			"(--host, --scan-uuid, --before, --status, --severity, --search, --orphans, --findings-only, --table), " +
+			"(--host, --scan-uuid, --before, --status, --severity, --search, --tag, --orphans, --findings-only, --table), " +
 			"use `--all --force` to delete all records, " +
 			"or use `vigolium db reset --force` to delete and recreate the database")
 	}
@@ -401,6 +403,9 @@ func describeActiveFilters(sel *cleanSelection) string {
 	fs.addSeverities("severity", f.Severity)
 	fs.addInts("status", f.StatusCodes)
 	fs.addQuoted("search", f.SearchTerm)
+	for _, t := range f.Tags {
+		fs.add("tag", t.String())
+	}
 	return fs.String()
 }
 

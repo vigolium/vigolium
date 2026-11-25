@@ -743,7 +743,8 @@ func displayJSON(ctx context.Context, cmd *cobra.Command, db *database.DB, recor
 	// appeared only when THIS process happened to have probed the host and not
 	// yet evicted it - so reading a database back showed nothing, and reading a
 	// large sweep back showed facts for its last hosts only.
-	opts := agentViewOptionsFromFlags().withHostFacts(ctx, db, projectUUID, "").withNotFound(ctx, db, projectUUID)
+	opts := agentViewOptionsFromFlags().withHostFacts(ctx, db, projectUUID, "").withNotFound(ctx, db, projectUUID).
+		withRecordTags(ctx, db, records)
 	env := newMachineEnvelope(cmd, "records",
 		recordViews(records, opts), total, offset, limit)
 	env.WithProjectScope(projectUUID)

@@ -93,8 +93,8 @@ Walkthrough: **`references/agent-loop.md`** (read it first), then a file per ste
 - Without a terminal `init` skips Chrome (~150 MB) and nuclei templates; the
   first spidering / known-issue scan fetches them inside that phase (`scan.setup`
   events). Pre-install: `vigolium init --with-deps` or `vigolium doctor --fix`.
-- A scan that did nothing exits `1`: `no_targets_in_scope` (`--dry-run` shows it
-  first) or `no_targets_reachable`. Rescanning the DB needs `--all-records`.
+- Scope refuses a target → exit `2` `out_of_scope` at entry, nothing sent; no
+  target answered → exit `1` `no_targets_reachable`. DB rescans need `--all-records`.
 - A full `scan` can run past 30 minutes per target (discovery 1h, spidering
   30m, no total cap). Run it in the background under `--scan-uuid`, or cap it
   with `--scanning-max-duration 30m`. Iterate on one phase with `run <phase>`.

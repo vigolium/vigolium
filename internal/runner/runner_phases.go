@@ -118,6 +118,9 @@ func (r *Runner) RunNativeScan() (err error) {
 	// Warn the operator (once per host) when the edge WAF/CDN starts filtering
 	// scan traffic, across all phases that share this requester.
 	r.attachWAFBlockNotifier(infra.httpRequester)
+	// Carry the sessions an earlier invocation's spider saved
+	// (--browser-session-file) into every phase before any traffic.
+	r.loadBrowserSessionFile(infra)
 	// Proactively pace a host the first time an earlier phase reveals it is behind a
 	// CDN/WAF edge, so the active phase does not burst the edge into a rate-based
 	// block before the high-value probes run. Hangs off the shared host limiter (not a
@@ -158,6 +161,16 @@ func (r *Runner) RunNativeScan() (err error) {
 			ScanSource:      "cli",
 			ScanMode:        "full",
 			StartedAt:       time.Now(),
+			// --caller-tag / VIGOLIUM_CALLER_TAG: the row every record this
+			// scan stores joins to carries the caller's labels.
+			Tags: r.options.CallerTags,
+		}
+		// --only-new-since: the scan starts at a cursor, the incremental mode
+		// scan-on-receive already runs in; the assessment rewinds to it.
+		if !r.options.OnlyNewSinceAt.IsZero() {
+			scan.ScanMode = "incremental"
+			scan.StartCursorAt = r.options.OnlyNewSinceAt
+			scan.CursorAt = r.options.OnlyNewSinceAt
 		}
 		if err := r.repository.CreateScan(ctx, scan); err != nil {
 			zap.L().Warn("Failed to create scan record", zap.Error(err))
@@ -573,6 +586,7 @@ var defaultPhaseRunners = map[NativePhase]phaseRunner{
 // the modules first, so a run with none is reported skipped rather than started.
 func (r *Runner) runDynamicAssessmentStep(ctx context.Context, infra *phaseInfra) error {
 	activeModules, passiveModules := r.resolveAllModules(infra)
+	r.noteOASTDisabled()
 	if len(activeModules) == 0 && len(passiveModules) == 0 {
 		zap.L().Info("No modules to execute")
 		r.scanLogger.Info("dynamic-assessment", "skipped, no modules to execute")
@@ -614,6 +628,9 @@ func (r *Runner) executeNativePhase(ctx context.Context, infra *phaseInfra, phas
 	// goroutines with no idea which phase they belong to — can count a finding
 	// against the phase that produced it.
 	tracker := r.beginPhase(ctx, string(phase), infra.httpRequester)
+	if r.options != nil && OnlyPhaseSet(r.options.OnlyPhase)[string(phase)] {
+		tracker.markExplicit()
+	}
 	r.currentPhase.Store(tracker)
 	// Account the phase's logged-out traffic (responses_while_logged_out,
 	// auth_lost) when it finishes.

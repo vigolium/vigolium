@@ -176,9 +176,14 @@ type Modules struct {
 	// TierFiltered, HygieneSuppressed and RiskGated count the modules a broad
 	// selection drops: above the tier ceiling, hardening advisories below deep,
 	// risk:high modules without --allow-risky-payloads.
-	TierFiltered      int `json:"tier_filtered"`
-	HygieneSuppressed int `json:"hygiene_suppressed"`
-	RiskGated         int `json:"risk_gated"`
+	TierFiltered int `json:"tier_filtered"`
+	// MaxModuleTier is the hard ceiling (--max-module-tier /
+	// dynamic-assessment.max_module_tier), absent when none; TierCapped counts
+	// the modules it removed, explicit selections included.
+	MaxModuleTier     string `json:"max_module_tier,omitempty"`
+	TierCapped        int    `json:"tier_capped"`
+	HygieneSuppressed int    `json:"hygiene_suppressed"`
+	RiskGated         int    `json:"risk_gated"`
 	// RiskyPayloadsAllowed reports whether risk:high payloads and modules run.
 	RiskyPayloadsAllowed bool `json:"risky_payloads_allowed"`
 	// PayloadsGated lists modules that hold back some of their payloads.

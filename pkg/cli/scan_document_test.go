@@ -303,25 +303,22 @@ func TestScanDocumentHasNoNucleiKeys(t *testing.T) {
 }
 
 // A scan that fails still prints its document: status failed, errors[] with
-// the code, exactly one document, exit 1.
+// the code, exactly one document, exit 1. The failure here is a target that
+// never answers (a closed loopback port): admitted by scope, unreachable at
+// preflight.
 func TestScanDocumentFailurePath(t *testing.T) {
-	srv, hits := countingServer(t)
-	home := a3Home(t, "nomatch.example")
-	code, stdout, stderr := runA3(t, home, "scan", "-t", srv.URL+"/", "-j", "--db", filepath.Join(home, "fail.sqlite"))
+	home := a3Home(t, "127.0.0.1")
+	code, stdout, stderr := runA3(t, home, "scan", "-t", "http://127.0.0.1:1/", "-j", "--db", filepath.Join(home, "fail.sqlite"))
 	require.Equal(t, 1, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
-	assert.Zero(t, hits.Load())
 	doc := decodeOneScanDoc(t, stdout)
 	contracttest.Validate(t, "scan", []byte(stdout))
 	assert.False(t, doc.OK, "exit 1: the document is kept and says it failed")
 	require.NotNil(t, doc.Error)
 	assert.Equal(t, 1, doc.Error.ExitCode)
 	assert.Equal(t, "failed", doc.Status)
-	assert.Equal(t, database.ReasonNoTargetsInScope, doc.StopReason)
+	assert.Equal(t, database.ReasonNoTargetsReachable, doc.StopReason)
 	require.NotEmpty(t, doc.Errors)
-	assert.Equal(t, apicontract.CodeNoTargetsInScope, doc.Errors[0].Code)
-	require.Len(t, doc.Targets, 1)
-	assert.False(t, doc.Targets[0].Admitted)
-	assert.Equal(t, scanDocReasonOutOfScope, doc.Targets[0].Reason)
+	assert.Equal(t, apicontract.CodeNoTargetsReachable, doc.Errors[0].Code)
 	assert.NotEmpty(t, doc.PhaseOutcomes)
 }
 

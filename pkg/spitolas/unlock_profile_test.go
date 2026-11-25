@@ -63,6 +63,19 @@ func TestParseUnlockProfileRefusals(t *testing.T) {
 		{"cookie value", `{"origin":"https://a.test","cookies":[{"name":"s","value":"a;b"}]}`, "cookies[0]"},
 		{"cookie name", `{"origin":"https://a.test","cookies":[{"name":"a b","value":"x"}]}`, "cookie token"},
 		{"trailing data", `{"origin":"https://a.test"} {}`, "trailing data"},
+		{"rewrite off origin", `{"origin":"https://a.test","rewrites":[{"method":"GET","path":"https://evil.test/api/me","status":200}]}`, "not on the profile origin"},
+		{"rewrite changes nothing", `{"origin":"https://a.test","rewrites":[{"method":"GET","path":"/api/me"}]}`, "changes nothing"},
+		{"rewrite redirect", `{"origin":"https://a.test","rewrites":[{"method":"GET","path":"/api/me","status":302}]}`, "2xx, 4xx or 5xx"},
+		{"rewrite whole document", `{"origin":"https://a.test","rewrites":[{"method":"GET","path":"/api/me","set":[{"pointer":"","value":{}}]}]}`, "use a stub"},
+		{"rewrite pointer", `{"origin":"https://a.test","rewrites":[{"method":"GET","path":"/api/me","set":[{"pointer":"role","value":1}]}]}`, "RFC 6901"},
+		{"rewrite pointer escape", `{"origin":"https://a.test","rewrites":[{"method":"GET","path":"/api/me","set":[{"pointer":"/a~2b","value":1}]}]}`, "~0 or ~1"},
+		{"rewrite no value", `{"origin":"https://a.test","rewrites":[{"method":"GET","path":"/api/me","set":[{"pointer":"/role"}]}]}`, "value is required"},
+		{"rewrite query", `{"origin":"https://a.test","rewrites":[{"method":"GET","path":"/api/me?x=1","status":200}]}`, "query"},
+		{"rewrite shadowed by stub", `{"origin":"https://a.test","stubs":[{"method":"GET","path":"/api/me","status":200}],"rewrites":[{"method":"get","path":"/api/me","status":200}]}`, "would never run"},
+		{"rewrite values over limit", `{"origin":"https://a.test","rewrites":[{"method":"GET","path":"/x","set":[{"pointer":"/a","value":"` + strings.Repeat("a", MaxUnlockRewriteValues) + `"}]}]}`, "over the 65536-byte limit"},
+		{"rewrite set count", `{"origin":"https://a.test","rewrites":[{"method":"GET","path":"/x","set":[` + strings.TrimSuffix(strings.Repeat(`{"pointer":"/a","value":1},`, 21), ",") + `]}]}`, "21 set entries"},
+		{"clicks over cap", `{"origin":"https://a.test","maxClicksPerRoute":31}`, "maxClicksPerRoute 31"},
+		{"clicks negative", `{"origin":"https://a.test","maxClicksPerRoute":-1}`, "maxClicksPerRoute -1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -169,7 +182,7 @@ func newTestWalk(t *testing.T, doc string, allowWrites bool) (*unlockWalk, *memW
 	sink := &memWalkSink{}
 	w := &unlockWalk{
 		ctx: t.Context(), cfg: UnlockWalkConfig{Profile: p, Sink: sink, AllowWrites: allowWrites},
-		profile: p, origin: origin, buckets: []*unlockBucket{{}}, stubHits: make([]int, len(p.Stubs)),
+		profile: p, origin: origin, buckets: []*unlockBucket{{}},
 		stored: map[string]storedExchange{},
 	}
 	return w, sink

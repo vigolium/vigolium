@@ -835,6 +835,30 @@ scope:
     #   - "/api/health"
     #   - "/api/metrics"
 
+  # Address rules: IPv4/IPv6 prefixes ("10.0.0.0/8") or bare addresses.
+  # An IP-literal host inside an include prefix is in scope; exclude refuses an
+  # IP-literal host and, at send time, any address a hostname resolves to.
+  # Private, loopback and link-local addresses are refused at send time under a
+  # scope that names hosts, and the cloud metadata endpoints (169.254.169.254,
+  # fd00:ec2::254, metadata.google.internal) always, unless a literal
+  # host.include entry, a CLI target (private ranges only) or an include prefix
+  # here names them.
+  cidr:
+    include: []
+    exclude: []
+    # Example: an internal lab range, minus its gateway:
+    # include:
+    #   - "10.20.0.0/16"
+    # exclude:
+    #   - "10.20.0.1"
+
+  # Destination ports: single ports ("443") or ranges ("8000-8100"). A URL
+  # without a port is judged on its scheme's default (80/443). Empty include
+  # admits every port.
+  port:
+    include: []
+    exclude: []
+
   # HTTP status code filters
   # Supports exact ("200"), wildcard ("2xx"), and range ("400-499")
   status_code:

@@ -35,6 +35,7 @@ type Module struct {
 	ds               dedup.Lazy[dedup.DiskSet]
 	compareClients   []*http.Requester
 	compareNames     []string
+	primaryName      string   // the primary session's name, recorded on every finding
 	compareHostnames []string // per-client hostname filter (empty = all hosts)
 }
 
@@ -89,6 +90,10 @@ func (m *Module) SetCompareClients(clients []*http.Requester, names []string, ho
 		m.compareHostnames = make([]string, len(clients))
 	}
 }
+
+// SetPrimaryName records the primary session's name, which every finding names
+// beside the compare session that reached its object.
+func (m *Module) SetPrimaryName(name string) { m.primaryName = name }
 
 // HasCompareClients returns true if compare sessions are configured.
 func (m *Module) HasCompareClients() bool {
@@ -361,6 +366,7 @@ func (m *Module) probeWithSession(
 			"primary_status":         primary.StatusCode,
 			"compare_status":         compareStatus,
 			"compare_session":        sessionName,
+			"primary_session":        m.primaryName,
 			"body_length_ratio":      comparison.BodyLengthRatio,
 			"content_identical":      comparison.ContentIdentical,
 			"structural_identical":   comparison.StructurallyIdentical,

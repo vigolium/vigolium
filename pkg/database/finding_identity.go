@@ -173,6 +173,11 @@ func recordRedetectionTx(idb bun.IDB, existingID int64, existingStatus string, l
 		if latest.VulnClass != "" {
 			q = q.Set("vuln_class = ?", latest.VulnClass)
 		}
+		// The latest recipe replaces an older one; a re-detection by a path
+		// that states none keeps what is stored.
+		if latest.Proof != nil {
+			q = q.Set("proof = ?", latest.Proof)
+		}
 	}
 	if existingStatus != StatusFixed {
 		return q, nil

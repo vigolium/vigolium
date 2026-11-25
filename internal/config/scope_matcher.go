@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"path/filepath"
 	"strconv"
@@ -56,6 +57,7 @@ type ScopeMatcher struct {
 	staticExts   map[string]bool // flattened set of static file extensions (lowercase, with leading dot)
 	originMode   string          // "all", "strict", "balanced", "relaxed"
 	originIndex  originIndex     // the CLI targets compiled into mode-specific lookups
+	net          netRules        // scope.cidr, scope.port and the explicit hosts (scope_net.go)
 }
 
 // originIndex is the parsed CLI targets rearranged into what each mode asks.
@@ -88,7 +90,7 @@ type originIndex struct {
 // Optional targetHosts are the CLI -t target URLs used for cli_origin_mode filtering.
 // Existing call sites that pass no targets continue to work (no origin filtering).
 func NewScopeMatcher(cfg ScopeConfig, targetHosts ...string) *ScopeMatcher {
-	m := &ScopeMatcher{cfg: cfg}
+	m := &ScopeMatcher{cfg: cfg, net: compileNetRules(cfg, targetHosts)}
 	if cfg.IgnoreStaticFile && len(cfg.IgnoreStaticContentType) > 0 {
 		m.staticExts = make(map[string]bool)
 		for _, exts := range cfg.IgnoreStaticContentType {
@@ -210,9 +212,50 @@ func (m *ScopeMatcher) hostInScope(host string) bool {
 	if v, ok := m.hostCache.Load(host); ok {
 		return v.(bool)
 	}
-	result := matchGlob(host, m.cfg.Host) && m.hostMatchesOrigin(host)
+	rule, _ := m.hostVerdict(host)
+	result := rule == ""
 	m.hostCache.Store(host, result)
 	return result
+}
+
+// hostVerdict is the host decision with its reason: the runtime allow-set,
+// scope.cidr.exclude for an IP literal, the host rule's exclude side, then
+// either a scope.cidr.include prefix holding an IP literal (which admits it
+// outright) or the host rule's include side, scope.cidr.include as the only
+// list that can admit an IP literal when the host rule names no hosts, and
+// the CLI origin mode. hostInScope caches its verdict; RejectDetail reports it.
+func (m *ScopeMatcher) hostVerdict(host string) (rule, pattern string) {
+	if m.dynamicallyAllowed(host) {
+		return "", ""
+	}
+	addr, isIP := scopeHostAddr(host)
+	var cidrAdmits, cidrRequired bool
+	if isIP {
+		var excluded netip.Prefix
+		var isExcluded bool
+		excluded, isExcluded, cidrAdmits, cidrRequired = m.ipHostVerdict(addr)
+		if isExcluded {
+			return ScopeRuleCIDRExclude, excluded.String()
+		}
+	}
+	switch v, p := evalGlobWith(host, m.cfg.Host, globMatch); v {
+	case globExcluded:
+		return ScopeRuleHostExclude, p
+	case globNotIncluded:
+		if !cidrAdmits {
+			return ScopeRuleHostInclude, strings.Join(m.cfg.Host.Include, ", ")
+		}
+	}
+	if cidrAdmits {
+		return "", ""
+	}
+	if cidrRequired {
+		return ScopeRuleCIDRInclude, joinPrefixes(m.net.cidrInclude)
+	}
+	if !m.hostMatchesOrigin(host) {
+		return ScopeRuleCLIOriginMode, m.cfg.CLIOriginMode
+	}
+	return "", ""
 }
 
 // dynamicallyAllowed reports whether host was added through AllowHost. Gated on
@@ -261,16 +304,8 @@ func (m *ScopeMatcher) RejectDetail(host, path string) (rule, pattern string) {
 	if m == nil {
 		return "", ""
 	}
-	if !m.dynamicallyAllowed(host) {
-		switch v, p := evalGlobWith(host, m.cfg.Host, globMatch); v {
-		case globExcluded:
-			return ScopeRuleHostExclude, p
-		case globNotIncluded:
-			return ScopeRuleHostInclude, strings.Join(m.cfg.Host.Include, ", ")
-		}
-		if !m.hostMatchesOrigin(host) {
-			return ScopeRuleCLIOriginMode, m.cfg.CLIOriginMode
-		}
+	if rule, pattern := m.hostVerdict(host); rule != "" {
+		return rule, pattern
 	}
 	scopePath := pathglob.ScopePath(path)
 	switch v, p := evalGlobWith(scopePath, m.cfg.Path, pathGlobMatch); v {
@@ -565,7 +600,9 @@ func (m *ScopeMatcher) IsPassAll() bool {
 		isDefaultPassAll(m.cfg.RequestContentType) &&
 		isDefaultPassAll(m.cfg.ResponseContentType) &&
 		isDefaultPassAll(m.cfg.RequestString) &&
-		isDefaultPassAll(m.cfg.ResponseString)
+		isDefaultPassAll(m.cfg.ResponseString) &&
+		isDefaultPassAll(m.cfg.CIDR) &&
+		isDefaultPassAll(m.cfg.Port)
 }
 
 // globVerdict is evalGlob's answer: pass, or which side of the rule refused.
@@ -948,6 +985,8 @@ func ScopeRuleClasses(s ScopeConfig) []NamedScopeRule {
 		{ScopeClassResponseContentType, s.ResponseContentType},
 		{ScopeClassRequestString, s.RequestString},
 		{ScopeClassResponseString, s.ResponseString},
+		{ScopeClassCIDR, s.CIDR},
+		{ScopeClassPort, s.Port},
 	}
 }
 

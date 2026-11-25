@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/vigolium/vigolium/internal/helperblob"
+	"github.com/vigolium/vigolium/internal/paths"
 )
 
 // CacheDirEnv overrides the per-user cache directory used for extraction.
@@ -239,6 +240,9 @@ func cachedBinaryPath(pin helperblob.Pin) (string, error) {
 func resolveCacheDir(hash string) (string, error) {
 	if dir := os.Getenv(CacheDirEnv); dir != "" {
 		return filepath.Join(dir, "vigolium-audit-"+hash), nil
+	}
+	if paths.StateDirSet() {
+		return filepath.Join(paths.UserCacheDir("vigolium"), "vigolium-audit-"+hash), nil
 	}
 	base, err := os.UserCacheDir()
 	if err != nil {

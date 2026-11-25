@@ -62,6 +62,14 @@ type Result struct {
 	SessionDir string
 	StorageURL string
 
+	// RecordsTagged counts the written records Options.Tags labelled.
+	// RecordsRedacted and FindingsRedacted count the written rows whose
+	// credentials Options.RedactCredentials masked; rows that carried none are
+	// not counted.
+	RecordsTagged    int
+	RecordsRedacted  int
+	FindingsRedacted int
+
 	// MergeStats is populated only for SQLite-database imports (ImportSQLite):
 	// a lossless SQLite→SQLite merge of another vigolium result database into
 	// the destination. Nil for audit and JSONL imports.
@@ -153,6 +161,19 @@ type Options struct {
 	// only the read-only scratch loaders and `import --include-scopes` set it.
 	// Without it scope envelopes are counted in SkippedTypes.
 	ImportScopes bool
+
+	// Tags labels every HTTP record the import writes (record_tags). Records
+	// the destination already held are not written, so they are not tagged.
+	Tags []database.RecordTag
+
+	// RedactCredentials masks the credentials of every record and finding the
+	// import writes, before it is stored (database.RedactRecordCredentials,
+	// database.RedactFindingCredentials).
+	RedactCredentials bool
+
+	// RedactHeaders names further credential headers RedactCredentials masks
+	// (case-insensitive), beside the ones vigolium recognizes itself.
+	RedactHeaders []string
 }
 
 // DefaultMaxLineBytes is the ceiling ImportJSONL applies to one line when
@@ -283,6 +304,10 @@ func ImportSQLite(ctx context.Context, repo *database.Repository, srcPath, proje
 			SkipRecordBodies: opts.SkipRecordBodies,
 			SkipFindings:     opts.SkipFindings,
 			Hosts:            opts.Hosts,
+			Tags:             opts.Tags,
+
+			RedactCredentials: opts.RedactCredentials,
+			RedactHeaders:     opts.RedactHeaders,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("merge SQLite database %s: %w", srcPath, err)
@@ -303,6 +328,9 @@ func ImportSQLite(ctx context.Context, repo *database.Repository, srcPath, proje
 	res.ImportedByType["scan"] = stats.ScansMerged
 	res.ImportedByType["agentic_scan"] = stats.AgenticScansMerged
 	res.ImportedByType["oast_interaction"] = stats.OASTMerged
+	res.RecordsTagged = stats.RecordsTagged
+	res.RecordsRedacted = stats.RecordsRedacted
+	res.FindingsRedacted = stats.FindingsRedacted
 	return res, nil
 }
 
@@ -406,6 +434,32 @@ func tallyFindingSaves(findings []*database.Finding, results []database.FindingS
 	return saved, deduped, failed
 }
 
+// redactFindings masks the credentials of each finding when on, and reports
+// which ones changed (aligned with findings; nil when off).
+func redactFindings(findings []*database.Finding, opts Options) []bool {
+	if !opts.RedactCredentials {
+		return nil
+	}
+	extra := database.RedactHeaderSet(opts.RedactHeaders)
+	changed := make([]bool, len(findings))
+	for i, f := range findings {
+		changed[i] = database.RedactFindingCredentials(f, extra)
+	}
+	return changed
+}
+
+// countStoredRedacted counts the redacted findings the destination stored (a
+// new row, or evidence appended to an existing one).
+func countStoredRedacted(redacted []bool, results []database.FindingSaveResult) int {
+	n := 0
+	for i, r := range redacted {
+		if r && i < len(results) && results[i].Err == nil {
+			n++
+		}
+	}
+	return n
+}
+
 // ImportAudit imports an audit output folder. When opts.AgenticScanUUID is
 // set, the existing scan row is loaded (and project-validated by the caller)
 // and findings are attached to it instead of a new row being created.
@@ -446,6 +500,7 @@ func ImportAudit(ctx context.Context, repo *database.Repository, folderPath, pro
 		auditID = parsed.State.Audits[0].AuditID
 	}
 	findings := audit.BuildFindingsWithSource(parsed.RawFindings, auditID, agenticScan.UUID, projectUUID, parsed.RepoName, src)
+	redacted := redactFindings(findings, opts)
 
 	sevCounts := map[string]int{}
 	// The batch error is the first per-finding error, which `failed` already
@@ -455,6 +510,7 @@ func ImportAudit(ctx context.Context, repo *database.Repository, folderPath, pro
 	// source (openGlobDB).
 	results, _ := repo.SaveFindingsDirectBatch(ctx, findings)
 	saved, skipped, failed := tallyFindingSaves(findings, results, sevCounts)
+	res.FindingsRedacted = countStoredRedacted(redacted, results)
 
 	// For new scans we set the full finding count; for attached scans we
 	// increment so prior findings on that row aren't clobbered.
@@ -535,6 +591,7 @@ func ImportJSONL(ctx context.Context, repo *database.Repository, r io.Reader, pr
 		recordLines  int
 		pendingBytes int
 	)
+	redactExtra := database.RedactHeaderSet(opts.RedactHeaders)
 
 	// flushRecords writes the buffered records and empties the buffer. Records
 	// are written as they are parsed rather than at the end so peak memory is the
@@ -545,9 +602,29 @@ func ImportJSONL(ctx context.Context, repo *database.Repository, r io.Reader, pr
 		if len(records) == 0 {
 			return nil
 		}
+		var redacted map[string]bool
+		if opts.RedactCredentials {
+			redacted = make(map[string]bool, len(records))
+			for _, rec := range records {
+				if database.RedactRecordCredentials(rec, redactExtra) {
+					redacted[rec.UUID] = true
+				}
+			}
+		}
 		inserted, err := repo.SaveRecordsBatchSkipExisting(ctx, records)
 		if err != nil {
 			return fmt.Errorf("failed to save HTTP records batch: %w", err)
+		}
+		for _, u := range inserted {
+			if redacted[u] {
+				res.RecordsRedacted++
+			}
+		}
+		if len(opts.Tags) > 0 && len(inserted) > 0 {
+			if err := repo.TagRecords(ctx, inserted, opts.Tags); err != nil {
+				return err
+			}
+			res.RecordsTagged += len(inserted)
 		}
 		res.RecordsImported += len(inserted)
 		res.RecordsSkippedDuplicate += len(records) - len(inserted)
@@ -732,8 +809,10 @@ func ImportJSONL(ctx context.Context, repo *database.Repository, r io.Reader, pr
 		return nil, err
 	}
 
+	findingsRedacted := redactFindings(findings, opts)
 	results, _ := repo.SaveFindingsDirectBatch(ctx, findings)
 	saved, skipped, failed := tallyFindingSaves(findings, results, res.SeverityCounts)
+	res.FindingsRedacted = countStoredRedacted(findingsRedacted, results)
 	res.FindingsTotal = len(findings)
 	res.FindingsSaved = saved
 	res.FindingsSkipped = skipped
@@ -880,6 +959,9 @@ func mergeResult(dst, src *Result) {
 	dst.FindingsSkipped += src.FindingsSkipped
 	dst.FindingsFailed += src.FindingsFailed
 	dst.ParseErrors += src.ParseErrors
+	dst.RecordsTagged += src.RecordsTagged
+	dst.RecordsRedacted += src.RecordsRedacted
+	dst.FindingsRedacted += src.FindingsRedacted
 	for k, v := range src.SeverityCounts {
 		dst.SeverityCounts[k] += v
 	}

@@ -15,6 +15,7 @@ func init() {
 	cobra.AddTemplateFunc("styleGray", terminal.Gray)
 	cobra.AddTemplateFunc("groupedFlagUsages", groupedFlagUsages)
 	cobra.AddTemplateFunc("localFlagUsages", localFlagUsages)
+	cobra.AddTemplateFunc("pinnedHelpFooter", pinnedHelpFooter)
 
 	rootCmd.SetUsageTemplate(coloredUsageTemplate)
 	rootCmd.SetHelpTemplate(coloredHelpTemplate)
@@ -110,11 +111,11 @@ type flagGroup struct {
 // in exactly one group so no persistent flag falls into an "Other:" section.
 var globalFlagGroups = []flagGroup{
 	{"Output", []string{"verbose", "silent", "debug", "dump-traffic", "log-file", "json", "pretty", "redact", "no-redact", "format", "ci-output-format", "color", "no-color", "width"}},
-	{"Network", []string{"proxy", "offline"}},
+	{"Network", []string{"proxy", "offline", "request-transform", "request-transform-keys"}},
 	{"Extensions", []string{"ext", "ext-dir", "ext-allow-failures"}},
 	{"Project", []string{"project-uuid", "project-name"}},
 	{"Info", []string{"list-modules", "list-input-mode", "full-example", "usage"}},
-	{"Configuration", []string{"config", "db", "read-only", "force", "scan-uuid", "mem-limit", "skip-dependency-check", "soft-fail"}},
+	{"Configuration", []string{"config", "set", "db", "read-only", "force", "scan-uuid", "caller-tag", "mem-limit", "skip-dependency-check", "soft-fail"}},
 }
 
 // groupedFlagSet flattens a group table into the set of flag names it covers.
@@ -194,7 +195,7 @@ func terseGlobalFlags(fs *pflag.FlagSet) string {
 	var hints []string
 	for _, name := range terseGlobalFlagHints {
 		f := fs.Lookup(name)
-		if f == nil {
+		if f == nil || f.Hidden {
 			continue
 		}
 		if f.Shorthand != "" {
@@ -215,14 +216,14 @@ func terseGlobalFlags(fs *pflag.FlagSet) string {
 // all four. Every non-hidden local flag should live in exactly one group here so
 // the "Other:" section only ever holds cobra's auto-added --help.
 var scanFlagGroups = []flagGroup{
-	{"Target & Input", []string{"target", "target-file", "all-records", "record-uuid", "input-only", "include-stored", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
+	{"Target & Input", []string{"target", "target-file", "all-records", "record-uuid", "only-new-since", "input-only", "include-stored", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
 	{"Input Format", []string{"required-only", "skip-format-validation"}},
 	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
-	{"Module Selection", []string{"modules", "module-tag", "module-id", "passive-only", "no-passive", "no-tech-filter", "allow-risky-payloads", "no-param-dedup", "header-fuzz", "resume-scan"}},
+	{"Module Selection", []string{"modules", "module-tag", "module-id", "passive-only", "no-passive", "no-tech-filter", "allow-risky-payloads", "allow-writes", "max-module-tier", "no-param-dedup", "header-fuzz", "resume-scan"}},
 	{"Scanning", []string{"only", "skip", "dry-run", "intensity", "safe", "max-time", "scope-origin", "ignore-scope", "heuristics-check", "skip-heuristics", "oast-url"}},
 	{"Advanced presets (prefer --intensity)", []string{"strategy", "scanning-profile"}},
 	{"Discovery", []string{"discover", "discover-max-time", "discovery-wordlist", "discovery-extensions", "discovery-max-depth", "no-discovery-fuzz", "no-prefix-breaker", "follow-subdomains", "port-sweep-ports", "param-mining"}},
-	{"Spidering", []string{"spider", "spider-max-time", "browser-engine", "browsers", "headless", "headed", "no-cdp", "no-forms", "browser-insecure", "require-auth", "no-carry-browser-session"}},
+	{"Spidering", []string{"spider", "spider-max-time", "browser-engine", "browsers", "headless", "headed", "no-cdp", "no-forms", "browser-insecure", "require-auth", "no-carry-browser-session", "browser-session-file"}},
 	{"Probe (host sweep)", []string{"probe", "tls-probe", "favicon", "redirect-mode", "record-redirect-chain", "depth", "fingerprint-depth"}},
 	{"Harvest", []string{"external-harvest"}},
 	{"KnownIssueScan", []string{"known-issue-scan", "known-issue-scan-tags", "known-issue-scan-exclude-tags", "known-issue-scan-severities", "known-issue-scan-templates-dir", "known-issue-scan-templates"}},
@@ -326,13 +327,13 @@ var agentSessionFlagGroups = []flagGroup{
 // all three (e.g. the Replay group only materializes for traffic, the schema
 // flags only for db ls).
 var listQueryFlagGroups = []flagGroup{
-	{"Filter", []string{"uuid", "url", "host", "method", "status", "path", "source", "scan-uuid", "module-type", "finding-source", "record-kind", "severity", "min-severity", "confidence", "agentic-scan", "id", "min-risk", "min-surface", "remark"}},
+	{"Filter", []string{"uuid", "url", "host", "method", "status", "path", "source", "scan-uuid", "tag", "module-type", "finding-source", "record-kind", "severity", "min-severity", "confidence", "agentic-scan", "id", "min-risk", "min-surface", "remark"}},
 	{"Lifecycle", []string{"verdict", "new-since", "include-dismissed"}},
 	{"Search", []string{"search", "header", "body", "exclude-search", "exclude-header", "exclude-body", "exclude-not-found"}},
 	{"Date Range", []string{"from", "to"}},
 	{"Display", []string{"tree", "raw", "burp", "markdown", "group-by", "group-limit", "columns", "exclude-columns", "tui", "no-tui"}},
 	{"Output", []string{"fields", "compact", "full-body", "max-output-bytes", "output", "with-records", "record-fields", "record-limit", "no-header", "watch"}},
-	{"Pagination & Sort", []string{"limit", "offset", "sort", "asc", "pick", "all"}},
+	{"Pagination & Sort", []string{"limit", "offset", "cursor", "sort", "asc", "pick", "all"}},
 	{"Data Source", []string{"stateless", "glob-db", "glob-strict", "table", "list-tables", "list-columns"}},
 	{"Replay", []string{"replay", "ignore-scope", "require-scope", "concurrency", "with-browser", "burp-bridge-url", "save-to-vigolium-db", "save-to-burp", "in-replace", "timeout"}},
 	{"Burp Push", []string{"push-to-burp", "to-repeater", "send-via-burp", "http-mode"}},
@@ -393,7 +394,7 @@ var ingestFlagGroups = []flagGroup{
 	{"Target & Input", []string{"target", "target-file", "input", "input-mode", "input-read-timeout"}},
 	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
 	{"Module Selection", []string{"modules", "module-tag", "no-tech-filter"}},
-	{"Ingestion", []string{"server", "scan-on-receive", "full-native-scan-on-receive", "disable-fetch-response", "keep-blocked", "scope-origin", "intensity", "dir", "dir-glob", "dry-run"}},
+	{"Ingestion", []string{"server", "scan-on-receive", "full-native-scan-on-receive", "fetch-responses", "keep-blocked", "scope-origin", "intensity", "dir", "dir-glob", "dry-run"}},
 	{"Speed Control", []string{"timeout", "concurrency", "rate-limit", "max-per-host", "max-host-error", "max-findings-per-module", "no-clustering", "no-waf-pacing"}},
 }
 
@@ -420,6 +421,8 @@ var importFlagGroups = []flagGroup{
 	{"Filter", []string{"search", "severity"}},
 	{"Report Metadata", []string{"report-title", "report-target", "report-duration", "report-generated-at", "report-url", "max-body-bytes", "pdf-timeout", "no-redact"}},
 	{"Source & Upload", []string{"glob-db", "upload", "upload-key", "burp-bridge-url", "include-scopes", "skip-findings", "glob-strict", "dry-run"}},
+	// What the import writes: labels on its records, and credentials masked.
+	{"Labels & Redaction", []string{"tag", "redact", "redact-header"}},
 	// Bridge-pull narrowing. An unfiltered -B pull copies the operator's entire
 	// proxy history — every host they have browsed, with its cookies — so these
 	// get their own titled block rather than being buried under "Filter".
@@ -551,4 +554,4 @@ var coloredUsageTemplate = `{{if .HasAvailableInheritedFlags}}{{.InheritedFlags 
 {{ "Use" | styleGray }} "{{.CommandPath | styleCyan}} [command] --help" {{ "for more information about a command." | styleGray }}{{end}}
 
 ` + terminal.Cyan(terminal.SymbolDiamondSm) + ` {{ "Website:" | styleGray }} {{ "https://www.vigolium.com" | styleMagenta }} {{ "·" | styleGray }} ` + terminal.Cyan(terminal.SymbolMenu) + ` {{ "Docs:" | styleGray }} {{ "https://docs.vigolium.com" | styleMagenta }}
-`
+{{pinnedHelpFooter}}`

@@ -31,7 +31,8 @@ visit its routes, so views a client-side gate hides from an anonymous visitor
 render and send their real API calls. The profile (JSON; its schema is the
 unlock-profile document of 'vigolium schema all') holds the state:
 localStorage and sessionStorage seeds, cookies, response stubs for the app's
-own bootstrap and permission calls, and the routes to visit.
+own bootstrap and permission calls, rewrites of real answers, the routes to
+visit and how many controls to click on each (maxClicksPerRoute, default %d).
 
   vigolium kit unlock-walk --profile unlock.json -j
   vigolium kit unlock-walk --profile unlock.json --origin https://app.acme.test -j
@@ -41,12 +42,25 @@ own bootstrap and permission calls, and the routes to visit.
    "localStorage": {"token": "x"},
    "stubs": [{"method": "GET", "path": "/api/me", "status": 200,
               "contentType": "application/json", "body": "{\"role\":\"admin\"}"}],
+   "rewrites": [{"method": "GET", "path": "/api/menu", "status": 200,
+                 "set": [{"pointer": "/data/isAdmin", "value": true}]}],
    "routes": ["/admin", "/admin/users"]}
 
 The walk forges state; it never forges evidence:
   - storage seeds reach the page as data a fixed script reads, never as source;
   - a stub answers only requests on the profile's origin, in the browser; a
     stubbed response is never stored. A stub off the origin refuses the profile;
+  - a rewrite lets a same-origin request reach the target, then changes its
+    answer in the browser (a status, JSON members set by RFC 6901 pointer). A
+    rewritten answer is never evidence: the exchange is never stored, never
+    listed as a request, and is reported as rewrites_hit (upstream_status beside
+    the status the page got, applied, error);
+  - on each rendered route the walk clicks up to maxClicksPerRoute controls, one
+    search, filter, first-row view and edit, and export first, then tabs and
+    links, never one the destructive-label guard refuses (delete, logout,
+    approve, …: clicks_skipped_destructive, skipped_controls). A click's
+    requests pass the same gate (via "click"). Under --allow-writes the walk
+    clicks nothing (clicks_refused: writes_allowed);
   - every request with a method other than GET, HEAD or OPTIONS is failed in the
     browser and reported by shape (aborted_writes); --allow-writes lets in-scope
     ones through;
@@ -64,6 +78,10 @@ names their host. An invalid profile exits 2 before a browser is launched.`,
 }
 
 func init() {
+	kitUnlockWalkCmd.Long = fmt.Sprintf(kitUnlockWalkCmd.Long, spitolas.DefaultUnlockClicksPerRoute)
+}
+
+func init() {
 	f := kitUnlockWalkCmd.Flags()
 	f.StringVar(&kitUnlockProfile, "profile", "", "Unlock profile JSON file, or - for stdin (required)")
 	f.StringVar(&kitUnlockOrigin, "origin", "", "Refuse the profile unless its origin is exactly this one (pins the origin on the command line)")
@@ -77,8 +95,9 @@ const schemaDocUnlockProfile = "unlock-profile"
 
 func init() {
 	contract.RegisterDocument(contract.Document{Name: schemaDocUnlockProfile, Value: spitolas.UnlockProfile{},
-		Description: fmt.Sprintf("The kit unlock-walk --profile input: origin, localStorage/sessionStorage seeds, cookies, response stubs (same-origin, 2xx/4xx/5xx, body up to %d KiB) and routes (maxRoutes default %d, at most %d; settleMs default %d, at most %d).",
-			spitolas.MaxUnlockStubBody>>10, spitolas.DefaultUnlockMaxRoutes, spitolas.MaxUnlockRoutes, spitolas.DefaultUnlockSettleMs, spitolas.MaxUnlockSettleMs)})
+		Description: fmt.Sprintf("The kit unlock-walk --profile input: origin, localStorage/sessionStorage seeds, cookies, response stubs (same-origin, 2xx/4xx/5xx, body up to %d KiB), rewrites of real same-origin answers (status 2xx/4xx/5xx and/or up to 20 RFC 6901 pointer sets, values up to %d KiB; never stored as evidence), routes (maxRoutes default %d, at most %d; settleMs default %d, at most %d) and maxClicksPerRoute (default %d, at most %d, 0 off).",
+			spitolas.MaxUnlockStubBody>>10, spitolas.MaxUnlockRewriteValues>>10, spitolas.DefaultUnlockMaxRoutes, spitolas.MaxUnlockRoutes, spitolas.DefaultUnlockSettleMs, spitolas.MaxUnlockSettleMs,
+			spitolas.DefaultUnlockClicksPerRoute, spitolas.MaxUnlockClicksPerRoute)})
 }
 
 // kitUnlockWalkReport is the -j document: the walk itself plus where its
@@ -95,12 +114,13 @@ type kitUnlockWalkReport struct {
 // unlockWalkSink stores a walk's exchanges as unlock-walk records, a new row
 // remarked client-unlocked.
 type unlockWalkSink struct {
-	saver *handSendSaver
+	saver  *handSendSaver
+	origin string
 }
 
 func (s unlockWalkSink) SaveUnlockWalkRecord(ctx context.Context, rr *httpmsg.HttpRequestResponse) (string, error) {
 	return s.saver.repo.SaveRecordWithLineage(ctx, rr, database.RecordSourceUnlockWalk, s.saver.projectUUID,
-		database.RecordLineage{Remarks: []string{database.RecordRemarkClientUnlocked}})
+		s.saver.lineage(ctx, s.origin, database.RecordRemarkClientUnlocked))
 }
 
 func runKitUnlockWalk(cmd *cobra.Command, _ []string) error {
@@ -135,7 +155,7 @@ func runKitUnlockWalk(cmd *cobra.Command, _ []string) error {
 		ProxyURL:    globalProxy,
 	}
 	if saver.active() {
-		cfg.Sink = unlockWalkSink{saver: saver}
+		cfg.Sink = unlockWalkSink{saver: saver, origin: profile.Origin}
 	}
 
 	ctx := cmd.Context()
@@ -200,13 +220,27 @@ func printUnlockWalk(r kitUnlockWalkReport) {
 		if nav.Error != "" {
 			state = "error: " + nav.Error
 		}
-		fmt.Printf("%-40s %-8s %s  requests=%d aborted=%d stubs=%d\n",
-			clicommon.Truncate(nav.Route, 40), nav.Navigation, state, len(nav.Requests), len(nav.AbortedWrites), len(nav.StubsHit))
+		fmt.Printf("%-40s %-8s %s  requests=%d aborted=%d stubs=%d rewrites=%d clicks=%d\n",
+			clicommon.Truncate(nav.Route, 40), nav.Navigation, state, len(nav.Requests), len(nav.AbortedWrites), len(nav.StubsHit), len(nav.RewritesHit), len(nav.Clicks))
 		for _, q := range nav.Requests {
-			fmt.Printf("    %s %s %d %s\n", q.Method, q.URL, q.Status, q.RecordUUID)
+			via := ""
+			if q.Via != "" {
+				via = " (" + q.Via + ")"
+			}
+			fmt.Printf("    %s %s %d %s%s\n", q.Method, q.URL, q.Status, q.RecordUUID, via)
 		}
 		for _, a := range nav.AbortedWrites {
 			fmt.Printf("    aborted %s %s\n", a.Method, a.URL)
+		}
+		for _, h := range nav.RewritesHit {
+			outcome := fmt.Sprintf("%d → %d", h.UpstreamStatus, h.Status)
+			if !h.Applied {
+				outcome = "not applied: " + h.Error
+			}
+			fmt.Printf("    rewritten %s %s %s (not evidence)\n", h.Method, h.URL, outcome)
+		}
+		for _, c := range nav.Clicks {
+			fmt.Printf("    clicked %s %q requests=%d\n", c.Kind, c.Label, c.Requests)
 		}
 	}
 	line(r.Landing)
@@ -216,6 +250,15 @@ func printUnlockWalk(r kitUnlockWalkReport) {
 	t := r.Totals
 	fmt.Fprintf(os.Stderr, "%s %d route(s): %d rendered, %d redirected; %d real request(s), %d record(s) stored, %d write(s) aborted, %d stub hit(s)\n",
 		terminal.InfoSymbol(), t.Routes, t.Rendered, t.Redirected, t.RealRequests, t.RecordsStored, t.AbortedWrites, t.StubsHit)
+	if t.RewritesHit > 0 {
+		fmt.Fprintf(os.Stderr, "%s %d rewrite hit(s), %d applied; rewritten answers are not stored\n", terminal.InfoSymbol(), t.RewritesHit, t.RewritesApplied)
+	}
+	if len(r.RewritesNeverHit) > 0 {
+		fmt.Fprintf(os.Stderr, "%s %d rewrite(s) never hit\n", terminal.WarningSymbol(), len(r.RewritesNeverHit))
+	}
+	if r.ClicksRefused != "" {
+		fmt.Fprintf(os.Stderr, "%s no controls clicked: %s\n", terminal.WarningSymbol(), r.ClicksRefused)
+	}
 	if len(r.StubsNeverHit) > 0 {
 		fmt.Fprintf(os.Stderr, "%s %d stub(s) never hit\n", terminal.WarningSymbol(), len(r.StubsNeverHit))
 	}

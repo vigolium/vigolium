@@ -144,6 +144,12 @@ func (e *Executor) StoreFailed() int64 {
 	return e.storeFailed.Load()
 }
 
+// WriteTemplatesSkipped is how many stored request-only stubs with a
+// state-changing method the executor refused to send (ExecutorConfig.AllowWrites).
+func (e *Executor) WriteTemplatesSkipped() int64 {
+	return e.writeTemplatesSkipped.Load()
+}
+
 // Responded returns how many input items produced an HTTP response, which is
 // always <= Processed(). Use this, not Processed(), to report how many targets
 // answered: Processed() counts attempts, including the ones that never reached

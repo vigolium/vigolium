@@ -154,6 +154,13 @@ func (p *Page) enableInterception(r *credentialRouter) error {
 			add("*", rt)
 		}
 	}
+	// Response-stage patterns are a separate stage: a request-stage "*" does
+	// not pause a response, so they are added whatever else pauses.
+	if ic := r.interceptor; ic != nil {
+		for _, pat := range ic.ResponsePatterns {
+			reqPatterns = append(reqPatterns, &proto.FetchRequestPattern{URLPattern: pat, RequestStage: proto.FetchRequestStageResponse})
+		}
+	}
 	if len(reqPatterns) == 0 {
 		return (proto.FetchDisable{}).Call(p.boundedPage(0))
 	}
@@ -179,6 +186,16 @@ func (p *Page) routePaused(e *proto.FetchRequestPaused) {
 		if err := (proto.FetchFailRequest{RequestID: e.RequestID, ErrorReason: proto.NetworkErrorReasonBlockedByClient}).Call(page); err != nil {
 			zap.L().Debug("browser interceptor: fail request", zap.Error(err))
 		}
+	}
+	// A request paused at the response stage already reached the network:
+	// only the interceptor's response decision applies to it.
+	if e.ResponseStatusCode != nil || e.ResponseErrorReason != "" {
+		var ic *Interceptor
+		if r != nil {
+			ic = r.interceptor
+		}
+		p.answerResponse(ic, e, page)
+		return
 	}
 	if r != nil && r.interceptor != nil && e.Request != nil {
 		if p.answerIntercepted(r.interceptor, e, page) {
