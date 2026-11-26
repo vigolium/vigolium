@@ -235,6 +235,14 @@ func (e *Engine) OnDirectoryDiscovered(dirPath string, depth uint16) error {
 		return nil
 	}
 
+	// A route the application answers the same way under any parent (a rewrite
+	// rule such as WordPress's /<anything>/feed/) is not a directory: exploring
+	// it only finds the same route again one level down. Checked after the dedup
+	// mark so each directory costs at most two extra requests, once.
+	if e.isPathIndependentRoute(parsedURL) {
+		return nil
+	}
+
 	logger.Info("Directory discovered",
 		zap.String("path", cleanedPath),
 		zap.Uint16("depth", depth))
